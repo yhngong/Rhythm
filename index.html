@@ -7,103 +7,185 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Orbitron:wght@700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Nunito:wght@700;800;900&display=swap"
       rel="stylesheet"
     />
   </head>
   <body>
     <canvas id="game-canvas"></canvas>
 
-    <!-- Top-left floating utility bar -->
+    <!-- Top-left floating glossy 3D icon buttons (Circle Sound + Squircle Pause) -->
     <div id="top-controls">
-      <button id="btn-pause" class="icon-btn hidden" title="Pause (ESC)">⏸ PAUSE</button>
-      <button id="btn-mute" class="icon-btn" title="Mute / Unmute Audio (M)">🔊 SOUND ON</button>
+      <button id="btn-mute" class="jelly-btn jelly-circle theme-green" title="Sound On / Off (M)" aria-label="Toggle Sound">
+        <span class="shine-dots"></span>
+        <!-- Chunky rounded speaker SVG -->
+        <svg id="icon-sound-on" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+          <path
+            d="M14 25h9l12-10c2.5-2 6-.2 6 3v28c0 3.2-3.5 5-6 3L23 39h-9c-2.8 0-5-2.2-5-5v-4c0-2.8 2.2-5 5-5z"
+            fill="#ffffff"
+          />
+          <path
+            d="M47 22c3.5 3.5 5.5 8 5.5 10s-2 6.5-5.5 10"
+            fill="none"
+            stroke="#ffffff"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+        </svg>
+        <svg id="icon-sound-off" class="hidden" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+          <path
+            d="M14 25h9l12-10c2.5-2 6-.2 6 3v28c0 3.2-3.5 5-6 3L23 39h-9c-2.8 0-5-2.2-5-5v-4c0-2.8 2.2-5 5-5z"
+            fill="#ffffff"
+          />
+          <path
+            d="M46 25l10 14M56 25L46 39"
+            fill="none"
+            stroke="#ffffff"
+            stroke-width="6"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+
+      <button id="btn-pause" class="jelly-btn jelly-squircle theme-green hidden" title="Pause (ESC)" aria-label="Pause Game">
+        <span class="shine-dots"></span>
+        <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true">
+          <rect x="17" y="16" width="11" height="32" rx="5.5" fill="#ffffff" />
+          <rect x="36" y="16" width="11" height="32" rx="5.5" fill="#ffffff" />
+        </svg>
+      </button>
     </div>
 
     <!-- MAIN MENU OVERLAY -->
     <div id="menu-screen" class="overlay-screen">
-      <div class="menu-card">
+      <div class="menu-shell">
         <div class="hero-header">
-          <div class="fnf-tag">DOWNSCROLL 4-BAR FUNK BATTLE</div>
-          <h1 class="logo-title">RHYTHM<span>!</span></h1>
+          <div class="pill-tag">4-KEY DOWNSCROLL BAR FUNK</div>
+          <h1 class="logo-title">Rhythm<span>!</span></h1>
           <p class="subtitle">
-            Randomized beat-locked falling bars &bull; Catch at the bottom line with
-            <strong>D &middot; F &middot; J &middot; K</strong>
+            Catch randomized falling bars with <strong>D &middot; F &middot; J &middot; K</strong>
           </p>
         </div>
 
-        <!-- Visual DFJK Bar Legend + Anti-Spam Notice -->
+        <!-- Glossy Candy DFJK Legend + Anti-Spam Notice -->
         <div class="controls-banner">
           <div class="key-bars-demo">
-            <div class="demo-lane" style="--lane-col: #ff2e93">
-              <div class="demo-bar"></div>
-              <kbd>D</kbd>
+            <div class="demo-lane">
+              <div class="demo-bar theme-green"><span class="shine-dots mini"></span></div>
+              <kbd class="theme-green">D</kbd>
             </div>
-            <div class="demo-lane" style="--lane-col: #00e5ff">
-              <div class="demo-bar"></div>
-              <kbd>F</kbd>
+            <div class="demo-lane">
+              <div class="demo-bar theme-cyan"><span class="shine-dots mini"></span></div>
+              <kbd class="theme-cyan">F</kbd>
             </div>
-            <div class="demo-lane" style="--lane-col: #2bff88">
-              <div class="demo-bar"></div>
-              <kbd>J</kbd>
+            <div class="demo-lane">
+              <div class="demo-bar theme-gold"><span class="shine-dots mini"></span></div>
+              <kbd class="theme-gold">J</kbd>
             </div>
-            <div class="demo-lane" style="--lane-col: #ffb800">
-              <div class="demo-bar"></div>
-              <kbd>K</kbd>
+            <div class="demo-lane">
+              <div class="demo-bar theme-berry"><span class="shine-dots mini"></span></div>
+              <kbd class="theme-berry">K</kbd>
             </div>
           </div>
           <div class="antispam-callout">
-            <span class="shield-pill">⚡ NO-SPAM ENGINE</span>
+            <span class="shield-pill">No-Spam Guard</span>
             <p>
-              Every empty-lane press registers a <strong>GHOST WHIFF</strong> (breaks combo &amp; drains
-              health). Mashing keys triggers a <strong>BAR JAM LOCKOUT</strong>!
+              Empty-lane taps trigger a <strong>Ghost Whiff</strong> (-HP &amp; combo reset). Mashing keys
+              <strong>jams</strong> your catcher bars!
             </p>
           </div>
         </div>
 
-        <!-- Mode Selector -->
+        <!-- Mode Selector Row -->
         <div class="mode-row">
-          <span class="section-title">SELECT DIFFICULTY</span>
+          <span class="section-title">Pick Difficulty</span>
           <div class="mode-toggle" role="group" aria-label="Game Mode">
-            <button class="mode-btn active" data-mode="stage">🎤 STAGE BATTLE</button>
-            <button class="mode-btn" data-mode="endless">♾️ ENDLESS GROOVE</button>
+            <button class="mode-btn jelly-pill-sm theme-green active" data-mode="stage">
+              <span class="shine-dots mini"></span>Stage Battle
+            </button>
+            <button class="mode-btn jelly-pill-sm theme-slate" data-mode="endless">
+              <span class="shine-dots mini"></span>Endless
+            </button>
           </div>
         </div>
 
-        <!-- Difficulty Cards Grid -->
+        <!-- 4 Glossy 3D Difficulty Cards -->
         <div id="difficulty-grid" class="difficulty-grid"></div>
 
-        <!-- Launch CTA -->
-        <div class="launch-row">
-          <button id="btn-start" class="primary-cta">DROP THE BEAT (ENTER)</button>
+        <!-- Signature ui1.png Action Trio: [Gear Mode Toggle] [   Play!   ] -->
+        <div class="ui1-action-row">
+          <button id="btn-start" class="jelly-btn jelly-wide theme-green">
+            <span class="shine-dots"></span>
+            <span class="btn-label">Play!</span>
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- PAUSE OVERLAY -->
+    <!-- PAUSE OVERLAY (Styled directly after ui1.png!) -->
     <div id="pause-screen" class="overlay-screen hidden">
-      <div class="modal-box">
-        <h2>PAUSED</h2>
-        <p class="modal-sub">Catch your breath — the stage is waiting.</p>
-        <div class="modal-actions">
-          <button id="btn-resume" class="primary-cta">RESUME (ESC)</button>
-          <button id="btn-restart-pause" class="secondary-cta">NEW RANDOMIZED TRACK</button>
-          <button id="btn-menu-pause" class="secondary-cta">CHANGE DIFFICULTY</button>
+      <div class="modal-shell">
+        <h2 class="bubble-heading">Paused</h2>
+        <p class="modal-sub">Ready to jump back into the groove?</p>
+
+        <!-- Exact ui1.png 3-button layout: [Circle Gear = Difficulty] [Wide Green = Resume] [Squircle X = Menu] -->
+        <div class="ui1-trio-bar">
+          <button id="btn-restart-pause" class="jelly-btn jelly-circle theme-cyan" title="New Randomized Track">
+            <span class="shine-dots"></span>
+            <!-- Chunky Gear/Refresh icon matching ui1.png left button -->
+            <svg viewBox="0 0 64 64" width="34" height="34" aria-hidden="true">
+              <path
+                d="M28.5 10h7l1.4 5.6a17 17 0 0 1 4.2 2.4l5.5-1.7 3.5 6-4.1 4a17.5 17.5 0 0 1 0 4.8l4.1 4-3.5 6-5.5-1.7a17 17 0 0 1-4.2 2.4L35.5 54h-7l-1.4-5.6a17 17 0 0 1-4.2-2.4l-5.5 1.7-3.5-6 4.1-4a17.5 17.5 0 0 1 0-4.8l-4.1-4 3.5-6 5.5 1.7a17 17 0 0 1 4.2-2.4L28.5 10z"
+                fill="#ffffff"
+                stroke="#ffffff"
+                stroke-width="3"
+                stroke-linejoin="round"
+              />
+              <circle cx="32" cy="32" r="7.5" fill="#0ea5e9" class="gear-hole-cyan" />
+            </svg>
+          </button>
+
+          <button id="btn-resume" class="jelly-btn jelly-wide theme-green">
+            <span class="shine-dots"></span>
+            <span class="btn-label">Resume</span>
+          </button>
+
+          <button id="btn-menu-pause" class="jelly-btn jelly-squircle theme-berry" title="Exit to Menu">
+            <span class="shine-dots"></span>
+            <!-- Chunky rounded X matching ui1.png right button -->
+            <svg viewBox="0 0 64 64" width="30" height="30" aria-hidden="true">
+              <path
+                d="M20 20L44 44M44 20L20 44"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="11"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+        <div class="trio-captions">
+          <span>New Chart</span>
+          <span>Continue (ESC)</span>
+          <span>Menu</span>
         </div>
       </div>
     </div>
 
-    <!-- RESULTS / GAME OVER OVERLAY -->
+    <!-- RESULTS / GAME OVER OVERLAY (Featuring the exact ui1.png [Gear] [Again] [X] trio!) -->
     <div id="results-screen" class="overlay-screen hidden">
-      <div class="modal-box results-box">
-        <div id="res-badge" class="fnf-tag">STAGE COMPLETE</div>
-        <h2 id="res-title">TRACK CLEARED!</h2>
+      <div class="modal-shell results-shell">
+        <div id="res-badge" class="pill-tag">STAGE COMPLETE</div>
+        <h2 id="res-title" class="bubble-heading">Track Cleared!</h2>
 
         <div class="grade-showcase">
-          <div id="res-grade" class="grade-letter">S</div>
+          <div id="res-grade" class="grade-orb theme-green">
+            <span class="shine-dots"></span>
+            <span id="res-grade-text">S</span>
+          </div>
           <div class="score-summary">
             <div class="big-stat">
-              <span class="stat-label">FINAL SCORE</span>
+              <span class="stat-label">SCORE</span>
               <span id="res-score" class="stat-val">0</span>
             </div>
             <div class="mini-stat-row">
@@ -120,17 +202,47 @@
         </div>
 
         <div class="breakdown-grid">
-          <div class="bd-item" style="--bd-col: #00f5ff"><span>SICK!!</span><strong id="bd-sick">0</strong></div>
-          <div class="bd-item" style="--bd-col: #2bff88"><span>GOOD!</span><strong id="bd-good">0</strong></div>
-          <div class="bd-item" style="--bd-col: #ffb800"><span>BAD</span><strong id="bd-bad">0</strong></div>
-          <div class="bd-item" style="--bd-col: #ff6b3d"><span>EARLY</span><strong id="bd-shit">0</strong></div>
-          <div class="bd-item" style="--bd-col: #ff3355"><span>MISS</span><strong id="bd-miss">0</strong></div>
-          <div class="bd-item" style="--bd-col: #ff264b"><span>SPAM / WHIFF</span><strong id="bd-spam">0</strong></div>
+          <div class="bd-item" style="--bd-col: #47e8ff"><span>Sick!</span><strong id="bd-sick">0</strong></div>
+          <div class="bd-item" style="--bd-col: #56f019"><span>Good</span><strong id="bd-good">0</strong></div>
+          <div class="bd-item" style="--bd-col: #ffc826"><span>Bad</span><strong id="bd-bad">0</strong></div>
+          <div class="bd-item" style="--bd-col: #ff8533"><span>Early</span><strong id="bd-shit">0</strong></div>
+          <div class="bd-item" style="--bd-col: #ff476e"><span>Miss</span><strong id="bd-miss">0</strong></div>
+          <div class="bd-item" style="--bd-col: #ff2e55"><span>Spam</span><strong id="bd-spam">0</strong></div>
         </div>
 
-        <div class="modal-actions horizontal">
-          <button id="btn-retry" class="primary-cta">PLAY AGAIN • NEW CHART (R)</button>
-          <button id="btn-menu-results" class="secondary-cta">DIFFICULTY MENU</button>
+        <!-- EXACT ui1.png 3-Button Bar: [Circle Gear] [   Again   ] [Squircle X] -->
+        <div class="ui1-trio-bar">
+          <button id="btn-gear-results" class="jelly-btn jelly-circle theme-green" title="Change Difficulty">
+            <span class="shine-dots"></span>
+            <svg viewBox="0 0 64 64" width="36" height="36" aria-hidden="true">
+              <path
+                d="M28.5 10h7l1.4 5.6a17 17 0 0 1 4.2 2.4l5.5-1.7 3.5 6-4.1 4a17.5 17.5 0 0 1 0 4.8l4.1 4-3.5 6-5.5-1.7a17 17 0 0 1-4.2 2.4L35.5 54h-7l-1.4-5.6a17 17 0 0 1-4.2-2.4l-5.5 1.7-3.5-6 4.1-4a17.5 17.5 0 0 1 0-4.8l-4.1-4 3.5-6 5.5 1.7a17 17 0 0 1 4.2-2.4L28.5 10z"
+                fill="#ffffff"
+                stroke="#ffffff"
+                stroke-width="3"
+                stroke-linejoin="round"
+              />
+              <circle cx="32" cy="32" r="7.5" fill="#32cc0c" />
+            </svg>
+          </button>
+
+          <button id="btn-retry" class="jelly-btn jelly-wide theme-green" title="Play Again (R / Enter)">
+            <span class="shine-dots"></span>
+            <span class="btn-label">Again</span>
+          </button>
+
+          <button id="btn-menu-results" class="jelly-btn jelly-squircle theme-green" title="Back to Menu">
+            <span class="shine-dots"></span>
+            <svg viewBox="0 0 64 64" width="32" height="32" aria-hidden="true">
+              <path
+                d="M20 20L44 44M44 20L20 44"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="11"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
         </div>
       </div>
     </div>

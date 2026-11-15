@@ -3,24 +3,57 @@ import { DifficultyConfig, DifficultyId } from './types';
 export const LANE_KEYS = ['d', 'f', 'j', 'k'] as const;
 export const LANE_LABELS = ['D', 'F', 'J', 'K'] as const;
 
+// Vibrant glossy candy/jelly 3D palette matching ui1.png
 export const LANE_COLORS = [
-  { main: '#FF2E93', glow: '#FF7AC3', dark: '#520B2F', name: 'Magenta' }, // D
-  { main: '#00E5FF', glow: '#8CF6FF', dark: '#053B47', name: 'Cyan' },    // F
-  { main: '#2BFF88', glow: '#9EFFC6', dark: '#0A4725', name: 'Lime' },    // J
-  { main: '#FFB800', glow: '#FFE184', dark: '#4F3700', name: 'Amber' },   // K
+  {
+    top: '#6FFF1F',
+    main: '#3CE00E',
+    bottom: '#1EB506',
+    lip: '#127503',
+    glow: '#B2FF78',
+    dark: '#163812',
+    name: 'Lime',
+  }, // D — Signature ui1.png Green!
+  {
+    top: '#5CEEFF',
+    main: '#14C8FF',
+    bottom: '#0695E0',
+    lip: '#045E9C',
+    glow: '#AEF6FF',
+    dark: '#102F45',
+    name: 'Cyan',
+  }, // F
+  {
+    top: '#FFE44D',
+    main: '#FFB30F',
+    bottom: '#ED8200',
+    lip: '#9E4F00',
+    glow: '#FFF099',
+    dark: '#3D290A',
+    name: 'Gold',
+  }, // J
+  {
+    top: '#FF7096',
+    main: '#FF3366',
+    bottom: '#D91147',
+    lip: '#8C082B',
+    glow: '#FFB3C7',
+    dark: '#3D1222',
+    name: 'Berry',
+  }, // K
 ] as const;
 
 export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
   easy: {
     id: 'easy',
-    name: 'EASY',
+    name: 'Easy',
     subtitle: 'Chill Groove',
     bpm: 108,
     scrollSpeed: 430,
     measures: 24,
-    accentColor: '#2BFF88',
-    badgeText: '108 BPM • 1/4 & 1/8 Bars',
-    description: 'Clean single-bar rhythms and relaxed downward scroll speed to lock in your DFJK muscle memory.',
+    accentColor: '#3CE00E',
+    badgeText: '108 BPM • 1/4 & 1/8',
+    description: 'Relaxed downward scroll and clean single-bar grooves to lock in your DFJK timing.',
     stepSubdivision: 2,
     baseDensity: 0.56,
     chordChance: 0.0,
@@ -34,14 +67,14 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
   },
   normal: {
     id: 'normal',
-    name: 'NORMAL',
+    name: 'Normal',
     subtitle: "Funkin' Flow",
     bpm: 132,
     scrollSpeed: 565,
     measures: 32,
-    accentColor: '#00E5FF',
-    badgeText: '132 BPM • Syncopated & Jumps',
-    description: 'Call-and-response funk phrases with crisp 8th-note syncopation, double-bar jumps, and sustain trails.',
+    accentColor: '#14C8FF',
+    badgeText: '132 BPM • Jumps & Holds',
+    description: 'Bouncy call-and-response funk rhythms with 8th-note syncopation, double bars, and holds.',
     stepSubdivision: 4,
     baseDensity: 0.42,
     chordChance: 0.12,
@@ -55,14 +88,14 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
   },
   hard: {
     id: 'hard',
-    name: 'HARD',
-    subtitle: 'Neon Overdrive',
+    name: 'Hard',
+    subtitle: 'Turbo Beat',
     bpm: 158,
     scrollSpeed: 710,
     measures: 40,
-    accentColor: '#FFB800',
-    badgeText: '158 BPM • 16th Stairs & Chords',
-    description: 'Fast downward bar streams, rolling DFJK stairs, trills, and tight anti-spam precision demands.',
+    accentColor: '#FFB30F',
+    badgeText: '158 BPM • 16th Stairs',
+    description: 'Fast downward bar streams, rolling DFJK stairs, trills, and strict anti-spam precision.',
     stepSubdivision: 4,
     baseDensity: 0.56,
     chordChance: 0.18,
@@ -76,14 +109,14 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
   },
   insane: {
     id: 'insane',
-    name: 'INSANE',
-    subtitle: 'Hypernova Boss',
+    name: 'Insane',
+    subtitle: 'Hyper Boss',
     bpm: 184,
     scrollSpeed: 860,
     measures: 48,
-    accentColor: '#FF2E93',
-    badgeText: '184 BPM • Technical 4K Streams',
-    description: 'Relentless 16th-note funk-mania streams, alternating hand weaves, and high-velocity chord patterns.',
+    accentColor: '#FF3366',
+    badgeText: '184 BPM • Mania Streams',
+    description: 'Relentless 16th-note funk-mania streams, alternating hand weaves, and rapid chord jumps.',
     stepSubdivision: 4,
     baseDensity: 0.72,
     chordChance: 0.22,

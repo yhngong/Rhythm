@@ -304,30 +304,30 @@ export class RhythmGame {
         points = 350;
         weight = 1.0;
         hpDelta = this.config.sickHpGain;
-        popColor = '#00F5FF';
-        popText = 'SICK!!';
+        popColor = '#63F0FF';
+        popText = 'Sick!!';
       } else if (absDelta <= 0.092) {
         judgment = 'GOOD';
         points = 200;
         weight = 0.78;
         hpDelta = this.config.goodHpGain;
-        popColor = '#2BFF88';
-        popText = 'GOOD!';
+        popColor = '#72FF1D';
+        popText = 'Good!';
       } else if (absDelta <= 0.135) {
         judgment = 'BAD';
         points = 60;
         weight = 0.35;
         hpDelta = -1.5;
-        popColor = '#FFB800';
-        popText = 'BAD';
+        popColor = '#FFE44D';
+        popText = 'Bad';
       } else {
         // 135ms..180ms early/late slop trap — consumes note & breaks combo!
         judgment = 'SHIT';
         points = 15;
         weight = 0.1;
         hpDelta = -4.2;
-        popColor = '#FF5E36';
-        popText = 'EARLY!';
+        popColor = '#FF9F38';
+        popText = 'Early!';
       }
 
       if (judgment === 'SHIT') {
@@ -412,10 +412,10 @@ export class RhythmGame {
       this.laneWhiffTimes[lane] = [];
       this.stats.hp = Math.max(0, this.stats.hp - 5.0);
       this.audio.playSpamJamSound();
-      this.spawnPopup('NO SPAM!', 'BAR JAMMED', '#FF264B', laneCenterX, receptorY - 68, 0.95);
+      this.spawnPopup('No Spam!', 'Bar Jammed', '#FF5C7A', laneCenterX, receptorY - 68, 0.95);
     } else {
       this.audio.playMissSound();
-      this.spawnPopup('GHOST!', '-120 • -HP', '#FF4D6D', laneCenterX, receptorY - 58, 0.82);
+      this.spawnPopup('Ghost!', '-120 • -HP', '#FF7597', laneCenterX, receptorY - 58, 0.82);
     }
 
     this.checkKo();
@@ -644,7 +644,7 @@ export class RhythmGame {
         this.audio.playMissSound();
 
         const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
-        this.spawnPopup('MISS', '', '#FF3355', cx, receptorY - 52, 0.88);
+        this.spawnPopup('Miss!', '', '#FF5C7A', cx, receptorY - 52, 0.88);
         if (this.checkKo()) return;
       }
     }

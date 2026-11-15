@@ -10,13 +10,13 @@ import {
 
 export interface LaneVisualState {
   pressed: boolean;
-  hitFlash: number; // 0..1 decaying flash on successful catch
-  whiffFlash: number; // 0..1 decaying red flash on ghost tap
-  jamRemainingSec: number; // >0 when locked out by anti-spam
+  hitFlash: number;
+  whiffFlash: number;
+  jamRemainingSec: number;
 }
 
 export interface CharacterPose {
-  lane: -1 | 0 | 1 | 2 | 3; // -1 = idle
+  lane: -1 | 0 | 1 | 2 | 3;
   missTimer: number;
   poseTimer: number;
 }
@@ -35,13 +35,36 @@ export interface RenderFrameState {
   stats: RunStats;
   accuracy: number;
   grade: string;
-  spamHeat: number; // 0..1
+  spamHeat: number;
   popups: FloatingPopup[];
   particles: HitParticle[];
   playerPose: CharacterPose;
   rivalPose: CharacterPose;
   countdownText: string | null;
 }
+
+interface JellyPalette {
+  top: string;
+  main: string;
+  bottom: string;
+  lip: string;
+}
+
+const BERRY_JAM_PALETTE: JellyPalette = {
+  top: '#FF7597',
+  main: '#FF2E5B',
+  bottom: '#C90E39',
+  lip: '#7D0622',
+};
+
+const SLATE_IDLE_PALETTE: JellyPalette = {
+  top: '#434C5E',
+  main: '#323947',
+  bottom: '#262C37',
+  lip: '#151920',
+};
+
+const BUBBLE_FONT = "'Fredoka', 'Nunito', 'Arial Rounded MT Bold', system-ui, sans-serif";
 
 export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -55,54 +78,36 @@ export class GameRenderer {
   }
 
   public getHighwayGeometry(width: number, height: number) {
-    const laneWidth = Math.min(96, Math.max(66, Math.floor(width * 0.085)));
+    const laneWidth = Math.min(98, Math.max(68, Math.floor(width * 0.088)));
     const highwayWidth = laneWidth * 4;
     const highwayX = Math.floor((width - highwayWidth) / 2);
-    const receptorY = height - 122;
+    const receptorY = height - 130;
     return { laneWidth, highwayWidth, highwayX, receptorY };
   }
 
   public renderMenuBackground(width: number, height: number, timeSec: number): void {
     const ctx = this.ctx;
-    const beatPulse = Math.pow(0.5 + 0.5 * Math.cos(timeSec * Math.PI * 2 * (124 / 60)), 3);
 
-    // Deep arcade stage gradient
+    // Exact matte dark slate-charcoal backdrop matching ui1.png (#252A34 -> #1D2129)
     const bg = ctx.createLinearGradient(0, 0, 0, height);
-    bg.addColorStop(0, '#090616');
-    bg.addColorStop(0.55, '#130b29');
-    bg.addColorStop(1, '#070510');
+    bg.addColorStop(0, '#282E3A');
+    bg.addColorStop(0.55, '#232832');
+    bg.addColorStop(1, '#1B1F27');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
-    // Sweeping concert stage spotlights
-    for (let i = 0; i < 4; i++) {
-      const col = LANE_COLORS[i].main;
-      const baseX = width * (0.18 + i * 0.21);
-      const sway = Math.sin(timeSec * 1.1 + i * 1.4) * 110;
-      ctx.save();
-      ctx.globalAlpha = 0.09 + beatPulse * 0.05;
-      ctx.beginPath();
-      ctx.moveTo(baseX, -20);
-      ctx.lineTo(baseX + sway - 160, height);
-      ctx.lineTo(baseX + sway + 160, height);
-      ctx.closePath();
-      ctx.fillStyle = col;
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Animated demo falling bars in background
+    // Floating glossy 3D candy bars gently scrolling downward in the background
     const cols = 8;
     const colW = width / cols;
     ctx.save();
-    ctx.globalAlpha = 0.16;
-    for (let i = 0; i < 18; i++) {
+    ctx.globalAlpha = 0.28;
+    for (let i = 0; i < 16; i++) {
       const laneIdx = i % 4;
-      const x = ((i * 3) % cols) * colW + colW * 0.15;
-      const w = colW * 0.7;
-      const speed = 150 + (i % 5) * 45;
-      const y = ((timeSec * speed + i * 137) % (height + 80)) - 40;
-      this.drawRoundedBar(x, y, w, 16, 6, LANE_COLORS[laneIdx].main, LANE_COLORS[laneIdx].glow);
+      const x = ((i * 3) % cols) * colW + colW * 0.16;
+      const w = Math.min(96, colW * 0.68);
+      const speed = 110 + (i % 5) * 35;
+      const y = ((timeSec * speed + i * 145) % (height + 90)) - 45;
+      this.drawJellyPill(x, y, w, 24, 11, LANE_COLORS[laneIdx], 4, true);
     }
     ctx.restore();
   }
@@ -112,30 +117,29 @@ export class GameRenderer {
     const ctx = this.ctx;
     const { laneWidth, highwayWidth, highwayX, receptorY } = this.getHighwayGeometry(width, height);
 
-    // Subtle beat camera bump
     ctx.save();
-    const zoom = 1 + kickPulse * 0.012;
+    const zoom = 1 + kickPulse * 0.01;
     ctx.translate(width / 2, height / 2);
     ctx.scale(zoom, zoom);
     ctx.translate(-width / 2, -height / 2);
 
-    // 1. Concert Stage Background & Spotlights
-    this.drawStageBackdrop(width, height, songTime, kickPulse, difficulty.accentColor);
+    // 1. Matte Slate Stage Backdrop (ui1.png palette)
+    this.drawStageBackdrop(width, height, songTime, kickPulse);
 
-    // 2. Flanking Speakers & FNF Stage Characters (when screen has room around highway)
+    // 2. Flanking Glossy Cartoon Speakers & FNF Stage Characters
     if (width >= 820) {
       const leftStageX = highwayX * 0.5;
       const rightStageX = highwayX + highwayWidth + (width - (highwayX + highwayWidth)) * 0.5;
-      const stageFloorY = height - 155;
+      const stageFloorY = height - 160;
 
-      this.drawSpeakerStack(leftStageX, stageFloorY - 95, kickPulse, '#FF2E93');
-      this.drawSpeakerStack(rightStageX, stageFloorY - 95, kickPulse, '#00E5FF');
+      this.drawSpeakerStack(leftStageX, stageFloorY - 96, kickPulse, LANE_COLORS[3]);
+      this.drawSpeakerStack(rightStageX, stageFloorY - 96, kickPulse, LANE_COLORS[0]);
 
       this.drawRivalCharacter(leftStageX, stageFloorY, songTime, state.currentBpm, state.rivalPose);
       this.drawPlayerCharacter(rightStageX, stageFloorY, songTime, state.currentBpm, state.playerPose);
     }
 
-    // 3. Center 4-Lane Downscroll Bar Highway
+    // 3. Rounded 3D Slate Highway Track
     this.drawHighwayTrack(
       highwayX,
       highwayWidth,
@@ -148,7 +152,7 @@ export class GameRenderer {
       state.lanes
     );
 
-    // 4. Falling Horizontal Bars & Hold Sustain Trails (Downscroll: top -> receptorY)
+    // 4. Glossy 3D Candy Falling Bars & Sustain Ribbons
     this.drawFallingNoteBars(
       state.notes,
       highwayX,
@@ -159,99 +163,206 @@ export class GameRenderer {
       difficulty.scrollSpeed
     );
 
-    // 5. Catcher Receptor Bars (D F J K) at Bottom
+    // 5. Glossy 3D Catcher Bars + Squircle D F J K Keycap Buttons
     this.drawReceptorBars(highwayX, laneWidth, receptorY, state.lanes);
 
-    // 6. Hit Particles & Floating FNF Judgment Popups
+    // 6. Hit Particles & Chunky Outlined Bubble Popups
     this.drawParticles(state.particles);
     this.drawPopups(state.popups);
 
     ctx.restore();
 
-    // 7. Top HUD, Anti-Spam Heat Meter & Bottom FNF Tug-of-War Health Bar
+    // 7. Glossy Capsule HUD, Anti-Spam Meter & FNF Tug-of-War Health Bar
     this.drawHud(state, highwayX, highwayWidth);
 
-    // 8. Countdown Overlay ("3 - 2 - 1 - FUNK!")
+    // 8. Countdown Banner
     if (state.countdownText) {
       this.drawCountdownBanner(width, height, state.countdownText, kickPulse);
     }
+  }
+
+  /**
+   * Core ui1.png 3D Glossy Jelly Pill / Squircle Renderer with:
+   *  - Extruded 3D bottom lip + soft shadow
+   *  - Rich 3-stop vertical gradient + dark stroke
+   *  - Inner white top bevel highlight
+   *  - Twin angled white specular shine droplets in the top-right corner!
+   */
+  private drawJellyPill(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radius: number,
+    pal: JellyPalette,
+    lipHeight = 5,
+    showShineDots = true
+  ): void {
+    const ctx = this.ctx;
+    const r = Math.min(radius, w / 2, h / 2);
+
+    ctx.save();
+
+    // Soft drop shadow + 3D bottom lip
+    if (lipHeight > 0) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
+      this.roundRectPath(x, y + lipHeight + 3, w, h, r);
+      ctx.fill();
+
+      ctx.fillStyle = pal.lip;
+      this.roundRectPath(x, y + lipHeight, w, h, r);
+      ctx.fill();
+    }
+
+    // Main glossy candy body
+    const grad = ctx.createLinearGradient(0, y, 0, y + h);
+    grad.addColorStop(0, pal.top);
+    grad.addColorStop(0.5, pal.main);
+    grad.addColorStop(1, pal.bottom);
+    ctx.fillStyle = grad;
+    this.roundRectPath(x, y, w, h, r);
+    ctx.fill();
+
+    // Continuous translucent inner glossy bevel ring matching ui1.png!
+    ctx.save();
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.34)';
+    ctx.lineWidth = 4;
+    this.roundRectPath(x + 1, y + 1, w - 2, h - 2, Math.max(2, r - 1));
+    ctx.stroke();
+    ctx.restore();
+
+    // Twin angled white specular droplets in top-right corner (signature of ui1.png!)
+    if (showShineDots && w >= 28 && h >= 16) {
+      const scale = Math.min(1, h / 28);
+      const rightAnchorX = x + w - Math.max(8, r * 0.65);
+      const topAnchorY = y + Math.max(5, h * 0.24);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+
+      // Small upper-left droplet
+      ctx.save();
+      ctx.translate(rightAnchorX - 8 * scale, topAnchorY - 1.5 * scale);
+      ctx.rotate((24 * Math.PI) / 180);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2.8 * scale, 1.7 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Larger lower-right droplet
+      ctx.save();
+      ctx.translate(rightAnchorX - 1.5 * scale, topAnchorY + 2 * scale);
+      ctx.rotate((32 * Math.PI) / 180);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 5.0 * scale, 2.4 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  private drawOutlinedText(
+    text: string,
+    x: number,
+    y: number,
+    fontSize: number,
+    fill = '#FFFFFF',
+    stroke = '#161A22',
+    strokeWidth = 5,
+    align: CanvasTextAlign = 'center'
+  ): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.font = `700 ${fontSize}px ${BUBBLE_FONT}`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+
+    // 3D bottom shadow stroke
+    ctx.fillStyle = stroke;
+    ctx.fillText(text, x, y + Math.max(2, fontSize * 0.09));
+
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeStyle = stroke;
+    ctx.strokeText(text, x, y);
+
+    ctx.fillStyle = fill;
+    ctx.fillText(text, x, y);
+    ctx.restore();
   }
 
   private drawStageBackdrop(
     width: number,
     height: number,
     songTime: number,
-    kickPulse: number,
-    accentColor: string
+    kickPulse: number
   ): void {
     const ctx = this.ctx;
     const bg = ctx.createLinearGradient(0, 0, 0, height);
-    bg.addColorStop(0, '#090718');
-    bg.addColorStop(0.68, '#150d2e');
-    bg.addColorStop(1, '#080612');
+    bg.addColorStop(0, '#282E3A');
+    bg.addColorStop(0.68, '#222731');
+    bg.addColorStop(1, '#1A1E26');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
-    // Stage floor perspective horizon
-    const horizonY = height - 140;
-    ctx.fillStyle = '#0c081d';
+    // Soft rounded stage floor platform
+    const horizonY = height - 146;
+    ctx.fillStyle = '#1B2029';
     ctx.fillRect(0, horizonY, width, height - horizonY);
 
-    ctx.strokeStyle = accentColor;
-    ctx.globalAlpha = 0.25 + kickPulse * 0.25;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#363F4F';
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(0, horizonY);
     ctx.lineTo(width, horizonY);
     ctx.stroke();
-    ctx.globalAlpha = 1;
 
-    // Overhead concert beams
+    // Soft candy stage spotlights
     for (let i = 0; i < 4; i++) {
       const col = LANE_COLORS[i].main;
-      const bx = width * (0.12 + i * 0.25);
-      const sway = Math.sin(songTime * 1.6 + i * 1.5) * 90;
+      const bx = width * (0.14 + i * 0.24);
+      const sway = Math.sin(songTime * 1.4 + i * 1.5) * 80;
       ctx.save();
-      ctx.globalAlpha = 0.06 + kickPulse * 0.06;
+      ctx.globalAlpha = 0.05 + kickPulse * 0.045;
       ctx.fillStyle = col;
       ctx.beginPath();
       ctx.moveTo(bx, 0);
-      ctx.lineTo(bx + sway - 130, horizonY);
-      ctx.lineTo(bx + sway + 130, horizonY);
+      ctx.lineTo(bx + sway - 125, horizonY);
+      ctx.lineTo(bx + sway + 125, horizonY);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
     }
   }
 
-  private drawSpeakerStack(cx: number, cy: number, kickPulse: number, rimColor: string): void {
+  private drawSpeakerStack(
+    cx: number,
+    cy: number,
+    kickPulse: number,
+    pal: JellyPalette
+  ): void {
     const ctx = this.ctx;
-    const bump = 1 + kickPulse * 0.07;
+    const bump = 1 + kickPulse * 0.065;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(bump, bump);
 
-    // Speaker cabinet
-    ctx.fillStyle = '#161329';
-    ctx.strokeStyle = '#2d2654';
-    ctx.lineWidth = 3;
-    this.roundRectPath(-58, -68, 116, 136, 12);
-    ctx.fill();
-    ctx.stroke();
+    this.drawJellyPill(-58, -68, 116, 136, 24, SLATE_IDLE_PALETTE, 7, false);
 
-    // Top & bottom woofers
-    for (const wy of [-28, 32]) {
+    for (const wy of [-28, 30]) {
       ctx.beginPath();
       ctx.arc(0, wy, 24, 0, Math.PI * 2);
-      ctx.fillStyle = '#090713';
+      ctx.fillStyle = '#171B22';
       ctx.fill();
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = rimColor;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = pal.main;
       ctx.stroke();
 
       ctx.beginPath();
       ctx.arc(0, wy, 9 + kickPulse * 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#262042';
+      ctx.fillStyle = pal.top;
       ctx.fill();
     }
     ctx.restore();
@@ -266,55 +377,25 @@ export class GameRenderer {
   ): void {
     const ctx = this.ctx;
     const beatBounce = Math.abs(Math.sin(songTime * Math.PI * (bpm / 60))) * 8;
-    const activeColor = pose.lane !== -1 ? LANE_COLORS[pose.lane].main : '#B84DFF';
+    const pal: JellyPalette = pose.lane !== -1 ? LANE_COLORS[pose.lane] : LANE_COLORS[3];
     const leanX = pose.lane === 0 ? -10 : pose.lane === 3 ? 10 : 0;
     const stretchY = pose.lane === 2 ? -10 : pose.lane === 1 ? 6 : 0;
 
     ctx.save();
     ctx.translate(x + leanX, floorY);
 
-    // Neon stage aura when singing
-    if (pose.lane >= 0) {
-      ctx.save();
-      ctx.globalAlpha = 0.22;
-      ctx.fillStyle = activeColor;
-      ctx.beginPath();
-      ctx.ellipse(0, -65, 58, 76, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Torso hoodie (Rival cyber DJ)
     const headY = -108 + beatBounce + stretchY;
-    ctx.fillStyle = '#231942';
-    ctx.strokeStyle = activeColor;
-    ctx.lineWidth = 3;
-    this.roundRectPath(-30, -78 + beatBounce * 0.5, 60, 68, 14);
-    ctx.fill();
-    ctx.stroke();
 
-    // Head + Cyber Visor
-    ctx.fillStyle = '#141026';
-    this.roundRectPath(-28, headY - 26, 56, 50, 16);
-    ctx.fill();
-    ctx.stroke();
+    // Glossy 3D torso
+    this.drawJellyPill(-30, -76 + beatBounce * 0.5, 60, 64, 18, pal, 5, true);
 
-    // Glowing LED visor bar!
-    ctx.fillStyle = activeColor;
-    this.roundRectPath(-20, headY - 10, 40, 14, 5);
-    ctx.fill();
+    // Glossy 3D head
+    this.drawJellyPill(-28, headY - 26, 56, 50, 18, SLATE_IDLE_PALETTE, 5, true);
 
-    // Headphones
-    ctx.fillStyle = '#FF2E93';
-    this.roundRectPath(-35, headY - 14, 8, 24, 4);
-    ctx.fill();
-    this.roundRectPath(27, headY - 14, 8, 24, 4);
-    ctx.fill();
+    // Glowing candy visor bar
+    this.drawJellyPill(-19, headY - 10, 38, 15, 7, pal, 2, false);
 
-    ctx.font = '700 12px Orbitron, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.textAlign = 'center';
-    ctx.fillText('RIVAL', 0, 22);
+    this.drawOutlinedText('Rival', 0, 22, 14, '#DCE5F5', '#151920', 4);
     ctx.restore();
   }
 
@@ -328,11 +409,11 @@ export class GameRenderer {
     const ctx = this.ctx;
     const beatBounce = Math.abs(Math.sin(songTime * Math.PI * (bpm / 60))) * 8;
     const isMiss = pose.missTimer > 0;
-    const activeColor = isMiss
-      ? '#FF2A4B'
+    const pal: JellyPalette = isMiss
+      ? BERRY_JAM_PALETTE
       : pose.lane !== -1
-      ? LANE_COLORS[pose.lane].main
-      : '#00E5FF';
+      ? LANE_COLORS[pose.lane]
+      : LANE_COLORS[0];
 
     const leanX = isMiss
       ? (Math.random() - 0.5) * 8
@@ -346,70 +427,40 @@ export class GameRenderer {
     ctx.save();
     ctx.translate(x + leanX, floorY);
 
-    if (pose.lane >= 0 || isMiss) {
-      ctx.save();
-      ctx.globalAlpha = 0.24;
-      ctx.fillStyle = activeColor;
-      ctx.beginPath();
-      ctx.ellipse(0, -65, 58, 76, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
     const headY = -106 + beatBounce + stretchY;
 
-    // Hoodie torso
-    ctx.fillStyle = isMiss ? '#3b1022' : '#122947';
-    ctx.strokeStyle = activeColor;
-    ctx.lineWidth = 3;
-    this.roundRectPath(-30, -76 + beatBounce * 0.5, 60, 66, 14);
-    ctx.fill();
-    ctx.stroke();
+    // Glossy 3D hoodie torso
+    this.drawJellyPill(-30, -74 + beatBounce * 0.5, 60, 62, 18, pal, 5, true);
 
-    // Head
-    ctx.fillStyle = isMiss ? '#2a0d1c' : '#0f1b33';
-    this.roundRectPath(-27, headY - 25, 54, 48, 16);
-    ctx.fill();
-    ctx.stroke();
+    // Rounded head
+    this.drawJellyPill(-27, headY - 25, 54, 48, 18, SLATE_IDLE_PALETTE, 5, false);
 
-    // Iconic red/pink FNF-inspired backwards cap!
-    ctx.fillStyle = '#FF2E93';
-    this.roundRectPath(-29, headY - 30, 58, 15, 7);
-    ctx.fill();
-    this.roundRectPath(16, headY - 24, 24, 9, 4); // backwards brim
-    ctx.fill();
+    // Backwards glossy cap
+    this.drawJellyPill(-29, headY - 31, 58, 16, 8, LANE_COLORS[3], 3, true);
+    this.drawJellyPill(15, headY - 25, 24, 10, 5, LANE_COLORS[3], 2, false);
 
-    // Expressive eyes
-    ctx.fillStyle = activeColor;
+    // Eyes
     if (isMiss) {
-      // X _ X flinch eyes
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#FF385C';
-      for (const ex of [-11, 11]) {
+      ctx.lineWidth = 3.5;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#FF5C7A';
+      for (const ex of [-10, 10]) {
         ctx.beginPath();
-        ctx.moveTo(ex - 5, headY - 7);
-        ctx.lineTo(ex + 5, headY + 3);
-        ctx.moveTo(ex + 5, headY - 7);
-        ctx.lineTo(ex - 5, headY + 3);
+        ctx.moveTo(ex - 5, headY - 6);
+        ctx.lineTo(ex + 5, headY + 4);
+        ctx.moveTo(ex + 5, headY - 6);
+        ctx.lineTo(ex - 5, headY + 4);
         ctx.stroke();
       }
     } else {
-      this.roundRectPath(-16, headY - 7, 10, 11, 3);
+      ctx.fillStyle = '#FFFFFF';
+      this.roundRectPath(-15, headY - 7, 10, 12, 5);
       ctx.fill();
-      this.roundRectPath(6, headY - 7, 10, 11, 3);
+      this.roundRectPath(5, headY - 7, 10, 12, 5);
       ctx.fill();
     }
 
-    // Glowing handheld mic
-    ctx.fillStyle = activeColor;
-    ctx.beginPath();
-    ctx.arc(-36, -52 + beatBounce * 0.4, 9, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.font = '700 12px Orbitron, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.textAlign = 'center';
-    ctx.fillText('YOU (DFJK)', 0, 22);
+    this.drawOutlinedText('You (DFJK)', 0, 22, 14, '#DCE5F5', '#151920', 4);
     ctx.restore();
   }
 
@@ -425,39 +476,48 @@ export class GameRenderer {
     lanes: LaneVisualState[]
   ): void {
     const ctx = this.ctx;
+    const trackH = height - 52;
 
-    // Dark high-contrast highway backdrop
-    ctx.fillStyle = 'rgba(7, 9, 18, 0.92)';
-    ctx.fillRect(highwayX, 0, highwayWidth, height - 48);
+    // Recessed matte dark slate highway well
+    ctx.fillStyle = '#181C23';
+    ctx.fillRect(highwayX - 4, 0, highwayWidth + 8, trackH);
 
-    // Active key-press vertical lane beams & whiff/jam flashes
+    ctx.fillStyle = '#1E232C';
+    ctx.fillRect(highwayX, 0, highwayWidth, trackH);
+
+    // Subtle alternating lane tint + active lane glow
     for (let i = 0; i < 4; i++) {
       const lx = highwayX + i * laneWidth;
-      const laneState = lanes[i];
+      if (i % 2 === 1) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.018)';
+        ctx.fillRect(lx, 0, laneWidth, trackH);
+      }
+
+      const st = lanes[i];
       const col = LANE_COLORS[i];
 
-      if (laneState.jamRemainingSec > 0) {
-        const grad = ctx.createLinearGradient(0, receptorY - 260, 0, receptorY + 25);
-        grad.addColorStop(0, 'rgba(255, 30, 60, 0)');
-        grad.addColorStop(1, 'rgba(255, 30, 60, 0.34)');
+      if (st.jamRemainingSec > 0) {
+        const grad = ctx.createLinearGradient(0, receptorY - 240, 0, receptorY + 25);
+        grad.addColorStop(0, 'rgba(255, 46, 91, 0)');
+        grad.addColorStop(1, 'rgba(255, 46, 91, 0.3)');
         ctx.fillStyle = grad;
-        ctx.fillRect(lx, receptorY - 260, laneWidth, 285);
-      } else if (laneState.pressed || laneState.hitFlash > 0.02) {
-        const intensity = Math.max(laneState.pressed ? 0.16 : 0, laneState.hitFlash * 0.32);
-        const grad = ctx.createLinearGradient(0, receptorY - 320, 0, receptorY + 20);
+        ctx.fillRect(lx, receptorY - 240, laneWidth, 265);
+      } else if (st.pressed || st.hitFlash > 0.02) {
+        const intensity = Math.max(st.pressed ? 0.14 : 0, st.hitFlash * 0.28);
+        const grad = ctx.createLinearGradient(0, receptorY - 280, 0, receptorY + 20);
         grad.addColorStop(0, 'rgba(0,0,0,0)');
         grad.addColorStop(1, this.hexWithAlpha(col.main, intensity));
         ctx.fillStyle = grad;
-        ctx.fillRect(lx, receptorY - 320, laneWidth, 340);
+        ctx.fillRect(lx, receptorY - 280, laneWidth, 300);
       }
 
-      if (laneState.whiffFlash > 0.02) {
-        ctx.fillStyle = `rgba(255, 42, 75, ${laneState.whiffFlash * 0.28})`;
+      if (st.whiffFlash > 0.02) {
+        ctx.fillStyle = `rgba(255, 46, 91, ${st.whiffFlash * 0.25})`;
         ctx.fillRect(lx, receptorY - 140, laneWidth, 170);
       }
     }
 
-    // Scrolling beat & measure horizontal lines (moving downward!)
+    // Scrolling beat & measure horizontal lines
     const secPerBeat = 60 / bpm;
     const firstBeat = Math.max(0, Math.floor((songTime - 0.3) / secPerBeat));
     const maxVisibleTime = songTime + (receptorY + 40) / scrollSpeed;
@@ -466,31 +526,31 @@ export class GameRenderer {
     for (let b = firstBeat; b <= lastBeat; b++) {
       const beatTime = b * secPerBeat;
       const y = receptorY - (beatTime - songTime) * scrollSpeed;
-      if (y < -10 || y > height - 55) continue;
+      if (y < -10 || y > trackH - 8) continue;
 
       const isMeasure = b % 4 === 0;
-      ctx.strokeStyle = isMeasure ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.06)';
-      ctx.lineWidth = isMeasure ? 2 : 1;
+      ctx.strokeStyle = isMeasure ? 'rgba(255, 255, 255, 0.14)' : 'rgba(255, 255, 255, 0.05)';
+      ctx.lineWidth = isMeasure ? 2.5 : 1;
       ctx.beginPath();
-      ctx.moveTo(highwayX, y);
-      ctx.lineTo(highwayX + highwayWidth, y);
+      ctx.moveTo(highwayX + 4, y);
+      ctx.lineTo(highwayX + highwayWidth - 4, y);
       ctx.stroke();
     }
 
-    // Crisp lane divider lines & outer neon frame
+    // Soft lane dividers & chunky 3D highway side rails
     for (let i = 1; i < 4; i++) {
       const x = highwayX + i * laneWidth;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.11)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, height - 48);
+      ctx.lineTo(x, trackH);
       ctx.stroke();
     }
 
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.42)';
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(highwayX, -2, highwayWidth, height - 46);
+    ctx.strokeStyle = '#384152';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(highwayX - 2, -4, highwayWidth + 4, trackH + 4);
   }
 
   private drawFallingNoteBars(
@@ -503,9 +563,9 @@ export class GameRenderer {
     scrollSpeed: number
   ): void {
     const ctx = this.ctx;
-    const padX = 9;
+    const padX = 8;
     const barW = laneWidth - padX * 2;
-    const barH = 20;
+    const barH = 24;
 
     for (const note of notes) {
       if (note.hit && (note.duration === 0 || note.holdCompleted)) continue;
@@ -514,54 +574,34 @@ export class GameRenderer {
       const endTime = note.time + note.duration;
       const tailY = receptorY - (endTime - songTime) * scrollSpeed;
 
-      // Cull off-screen bars
       const lowestY = Math.max(headY, tailY);
       const highestY = Math.min(headY, tailY);
-      if (lowestY < -40 || highestY > height) continue;
+      if (lowestY < -50 || highestY > height) continue;
 
-      const laneCol = LANE_COLORS[note.lane];
+      const pal = LANE_COLORS[note.lane];
       const lx = highwayX + note.lane * laneWidth + padX;
 
-      // 1. Draw vertical Hold Sustain Trail (if hold bar)
+      // 1. Glossy vertical Hold Sustain Trail
       if (note.duration > 0) {
         const clampBottomY = note.holding ? receptorY : Math.min(headY, height);
-        const topY = Math.max(-20, tailY);
+        const topY = Math.max(-25, tailY);
         if (clampBottomY > topY) {
-          const ribbonW = Math.max(18, Math.floor(barW * 0.42));
+          const ribbonW = Math.max(22, Math.floor(barW * 0.44));
           const rx = highwayX + note.lane * laneWidth + (laneWidth - ribbonW) / 2;
           ctx.save();
-          ctx.globalAlpha = note.missed || note.holdReleasedEarly ? 0.28 : note.holding ? 0.92 : 0.72;
-          const grad = ctx.createLinearGradient(rx, topY, rx + ribbonW, topY);
-          grad.addColorStop(0, laneCol.main);
-          grad.addColorStop(0.5, laneCol.glow);
-          grad.addColorStop(1, laneCol.main);
-          ctx.fillStyle = grad;
-          this.roundRectPath(rx, topY, ribbonW, clampBottomY - topY, 6);
-          ctx.fill();
-
-          // End cap bar on top of hold trail
-          this.roundRectPath(rx - 3, topY - 4, ribbonW + 6, 8, 4);
-          ctx.fillStyle = laneCol.glow;
-          ctx.fill();
+          ctx.globalAlpha = note.missed || note.holdReleasedEarly ? 0.32 : 0.92;
+          this.drawJellyPill(rx, topY, ribbonW, clampBottomY - topY, 10, pal, 3, false);
           ctx.restore();
         }
       }
 
-      // 2. Draw Horizontal Falling Note Bar (unless head was already caught on a hold note)
+      // 2. Glossy 3D Candy Horizontal Falling Bar (with twin top-right specular droplets!)
       if (!note.hit) {
         ctx.save();
         if (note.missed) {
-          ctx.globalAlpha = 0.35;
+          ctx.globalAlpha = 0.38;
         }
-        this.drawRoundedBar(
-          lx,
-          headY - barH / 2,
-          barW,
-          barH,
-          7,
-          laneCol.main,
-          laneCol.glow
-        );
+        this.drawJellyPill(lx, headY - barH / 2, barW, barH, 11, pal, 5, true);
         ctx.restore();
       }
     }
@@ -573,107 +613,75 @@ export class GameRenderer {
     receptorY: number,
     lanes: LaneVisualState[]
   ): void {
-    const ctx = this.ctx;
-    const padX = 7;
+    const padX = 6;
     const barW = laneWidth - padX * 2;
-    const barH = 22;
-
-    // Subtle target horizon line across all 4 lanes
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(highwayX, receptorY);
-    ctx.lineTo(highwayX + laneWidth * 4, receptorY);
-    ctx.stroke();
+    const barH = 25;
 
     for (let i = 0; i < 4; i++) {
       const st = lanes[i];
       const col = LANE_COLORS[i];
       const jammed = st.jamRemainingSec > 0;
       const shakeX = jammed ? (Math.random() - 0.5) * 6 : 0;
-      const pressOffsetY = st.pressed ? 2 : 0;
+
+      // Squish down onto the 3D lip when pressed — tactile ui1.png button feel!
+      const pressY = st.pressed ? 3 : 0;
+      const lipH = st.pressed ? 2 : 5;
 
       const x = highwayX + i * laneWidth + padX + shakeX;
-      const y = receptorY - barH / 2 + pressOffsetY;
+      const y = receptorY - barH / 2 + pressY;
 
-      ctx.save();
       if (jammed) {
-        // Locked/overheated bar state!
-        ctx.fillStyle = '#4A0817';
-        ctx.strokeStyle = '#FF264B';
-        ctx.lineWidth = 3;
-        this.roundRectPath(x, y, barW, barH, 7);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.font = '800 10px Orbitron, system-ui, sans-serif';
-        ctx.fillStyle = '#FF6E88';
-        ctx.textAlign = 'center';
-        ctx.fillText('LOCKED!', highwayX + i * laneWidth + laneWidth / 2, y - 8);
+        this.drawJellyPill(x, y, barW, barH, 12, BERRY_JAM_PALETTE, 5, true);
+        this.drawOutlinedText(
+          'LOCKED!',
+          highwayX + i * laneWidth + laneWidth / 2,
+          y - 12,
+          12,
+          '#FF8FA6',
+          '#4F0417',
+          4
+        );
       } else if (st.pressed || st.hitFlash > 0.08) {
-        // Lit active catcher bar
-        ctx.shadowColor = col.main;
-        ctx.shadowBlur = 18 + st.hitFlash * 16;
-        this.drawRoundedBar(x, y, barW, barH, 7, col.main, '#FFFFFF');
+        this.drawJellyPill(x, y, barW, barH, 12, col, lipH, true);
       } else {
-        // Crisp outlined idle catcher bar slot
-        ctx.fillStyle = 'rgba(18, 22, 38, 0.9)';
+        // Idle 3D slate catcher bar slot with colored inner rim
+        this.drawJellyPill(x, y, barW, barH, 12, SLATE_IDLE_PALETTE, 5, true);
+        const ctx = this.ctx;
+        ctx.save();
         ctx.strokeStyle = col.main;
-        ctx.lineWidth = 2.6;
-        this.roundRectPath(x, y, barW, barH, 7);
-        ctx.fill();
+        ctx.lineWidth = 2.5;
+        this.roundRectPath(x + 4, y + 4, barW - 8, barH - 8, 8);
         ctx.stroke();
-
-        // Inner center bar slot indicator
-        ctx.fillStyle = this.hexWithAlpha(col.main, 0.28);
-        this.roundRectPath(x + 6, y + 6, barW - 12, barH - 12, 3);
-        ctx.fill();
+        ctx.restore();
       }
-      ctx.restore();
 
-      // Keybind badge (D / F / J / K) right below each catcher bar
+      // Mini ui1.png Squircle Keycap Button (D / F / J / K) right below catcher bar!
       const cx = highwayX + i * laneWidth + laneWidth / 2;
-      const keyBoxY = receptorY + 20;
-      ctx.save();
-      ctx.fillStyle = st.pressed ? col.main : 'rgba(22, 26, 44, 0.92)';
-      ctx.strokeStyle = jammed ? '#FF264B' : col.main;
-      ctx.lineWidth = 1.8;
-      this.roundRectPath(cx - 17, keyBoxY, 34, 28, 6);
-      ctx.fill();
-      ctx.stroke();
+      const keySize = 38;
+      const keyPressY = st.pressed ? 3 : 0;
+      const keyLip = st.pressed ? 2 : 5;
+      const keyPal = jammed ? BERRY_JAM_PALETTE : st.pressed ? col : SLATE_IDLE_PALETTE;
 
-      ctx.font = '800 14px Orbitron, system-ui, sans-serif';
-      ctx.fillStyle = st.pressed ? '#080912' : '#FFFFFF';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(LANE_LABELS[i], cx, keyBoxY + 14.5);
-      ctx.restore();
+      this.drawJellyPill(
+        cx - keySize / 2,
+        receptorY + 21 + keyPressY,
+        keySize,
+        keySize,
+        12,
+        keyPal,
+        keyLip,
+        true
+      );
+      this.drawOutlinedText(
+        LANE_LABELS[i],
+        cx,
+        receptorY + 21 + keyPressY + keySize / 2,
+        18,
+        '#FFFFFF',
+        keyPal.lip,
+        4
+      );
     }
-  }
-
-  private drawRoundedBar(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    r: number,
-    mainHex: string,
-    glowHex: string
-  ): void {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.shadowColor = mainHex;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = mainHex;
-    this.roundRectPath(x, y, w, h, r);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Glossy inner core highlight bar
-    ctx.fillStyle = glowHex;
-    this.roundRectPath(x + 4, y + 4, Math.max(4, w - 8), Math.max(4, h * 0.42), Math.max(2, r - 3));
-    ctx.fill();
-    ctx.restore();
   }
 
   private drawParticles(particles: HitParticle[]): void {
@@ -684,10 +692,12 @@ export class GameRenderer {
       ctx.save();
       ctx.globalAlpha = t;
       ctx.fillStyle = p.color;
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.age * 8);
-      const s = p.size * t;
-      ctx.fillRect(-s / 2, -s / 2, s, s);
+      ctx.strokeStyle = '#161A22';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1.5, (p.size * t) / 1.4), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
       ctx.restore();
     }
   }
@@ -699,161 +709,126 @@ export class GameRenderer {
       if (progress >= 1) continue;
       const alpha = progress < 0.7 ? 1 : 1 - (progress - 0.7) / 0.3;
       const popScale =
-        progress < 0.12 ? 0.65 + (progress / 0.12) * 0.5 : Math.max(0.92, 1.15 - progress * 0.22);
+        progress < 0.14 ? 0.65 + (progress / 0.14) * 0.52 : Math.max(0.92, 1.17 - progress * 0.24);
 
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.translate(pop.x, pop.y);
       ctx.scale(popScale * pop.scale, popScale * pop.scale);
 
-      ctx.font = '900 28px Orbitron, Impact, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = '#070812';
-      ctx.strokeText(pop.text, 0, 0);
-      ctx.fillStyle = pop.color;
-      ctx.fillText(pop.text, 0, 0);
-
+      this.drawOutlinedText(pop.text, 0, 0, 32, pop.color, '#151920', 7);
       if (pop.subtext) {
-        ctx.font = '700 13px Orbitron, system-ui, sans-serif';
-        ctx.lineWidth = 3.5;
-        ctx.strokeText(pop.subtext, 0, 20);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillText(pop.subtext, 0, 20);
+        this.drawOutlinedText(pop.subtext, 0, 24, 14, '#FFFFFF', '#151920', 4.5);
       }
       ctx.restore();
     }
   }
 
   private drawHud(state: RenderFrameState, highwayX: number, highwayWidth: number): void {
-    const ctx = this.ctx;
     const { width, height, stats, difficulty, mode, songTime, totalDurationSec } = state;
 
-    // 1. Top Song Progress Bar
-    const topBarW = Math.min(460, width - 40);
+    // 1. Top Glossy Progress Pill
+    const topBarW = Math.min(440, width - 160);
     const topBarX = (width - topBarW) / 2;
-    ctx.fillStyle = 'rgba(14, 18, 34, 0.88)';
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-    ctx.lineWidth = 1.5;
-    this.roundRectPath(topBarX, 12, topBarW, 14, 7);
-    ctx.fill();
-    ctx.stroke();
+    this.drawJellyPill(topBarX, 12, topBarW, 20, 10, SLATE_IDLE_PALETTE, 4, false);
 
     const pct =
       mode === 'endless'
         ? (songTime % 30) / 30
         : Math.max(0, Math.min(1, songTime / Math.max(1, totalDurationSec)));
-    ctx.fillStyle = difficulty.accentColor;
-    this.roundRectPath(topBarX + 2, 14, Math.max(8, (topBarW - 4) * pct), 10, 5);
-    ctx.fill();
+    const fillW = Math.max(22, (topBarW - 6) * pct);
+    this.drawJellyPill(topBarX + 3, 14, fillW, 16, 8, LANE_COLORS[0], 0, true);
 
-    ctx.font = '700 11px Orbitron, system-ui, sans-serif';
-    ctx.fillStyle = '#E8F0FF';
-    ctx.textAlign = 'center';
     const timeLabel =
       mode === 'endless'
-        ? `${difficulty.name} • ENDLESS (${Math.round(state.currentBpm)} BPM) • ${this.formatTime(songTime)}`
-        : `${difficulty.name} — ${difficulty.subtitle.toUpperCase()} • ${this.formatTime(
+        ? `${difficulty.name} • Endless (${Math.round(state.currentBpm)} BPM) • ${this.formatTime(songTime)}`
+        : `${difficulty.name} — ${difficulty.subtitle} • ${this.formatTime(
             Math.max(0, totalDurationSec - songTime)
           )}`;
-    ctx.fillText(timeLabel, width / 2, 41);
+    this.drawOutlinedText(timeLabel, width / 2, 46, 13.5, '#E8EFFC', '#151920', 4);
 
-    // 2. Score / Combo / Accuracy Readout + Anti-Spam Heat Meter
+    // 2. Chunky Bubble Combo Counter
     if (stats.combo >= 3) {
       const comboX = highwayX + highwayWidth / 2;
-      ctx.save();
-      ctx.font = '900 36px Orbitron, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.strokeStyle = '#070914';
-      ctx.lineWidth = 6;
-      ctx.strokeText(`${stats.combo}x`, comboX, 118);
-      ctx.fillStyle = stats.combo >= 25 ? '#FFE066' : '#FFFFFF';
-      ctx.fillText(`${stats.combo}x`, comboX, 118);
-      ctx.font = '700 11px Orbitron, system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.fillText('COMBO', comboX, 134);
-      ctx.restore();
+      this.drawOutlinedText(
+        `${stats.combo}x`,
+        comboX,
+        118,
+        40,
+        stats.combo >= 25 ? '#FFE44D' : '#FFFFFF',
+        '#151920',
+        7
+      );
+      this.drawOutlinedText('Combo!', comboX, 144, 14, '#72FF1D', '#151920', 4);
     }
 
-    // Anti-Spam Stability Gauge (top-right)
-    const meterW = 160;
-    const meterX = width - meterW - 22;
-    const meterY = 16;
-    ctx.fillStyle = 'rgba(12, 15, 28, 0.86)';
-    ctx.strokeStyle = state.spamHeat > 0.65 ? '#FF264B' : 'rgba(255,255,255,0.18)';
-    ctx.lineWidth = 1.5;
-    this.roundRectPath(meterX, meterY, meterW, 44, 8);
+    // 3. Anti-Spam Stability Capsule (Top-Right)
+    const meterW = 166;
+    const meterX = width - meterW - 18;
+    const meterY = 14;
+    this.drawJellyPill(meterX, meterY, meterW, 48, 16, SLATE_IDLE_PALETTE, 5, false);
+
+    this.drawOutlinedText(
+      'No-Spam Guard',
+      meterX + meterW / 2,
+      meterY + 15,
+      12,
+      state.spamHeat > 0.65 ? '#FF7597' : '#FFFFFF',
+      '#151920',
+      3.5
+    );
+
+    const trackInW = meterW - 22;
+    const ctx = this.ctx;
+    ctx.fillStyle = '#161A22';
+    this.roundRectPath(meterX + 11, meterY + 27, trackInW, 12, 6);
     ctx.fill();
-    ctx.stroke();
 
-    ctx.font = '700 10px Orbitron, system-ui, sans-serif';
-    ctx.fillStyle = state.spamHeat > 0.65 ? '#FF5C7A' : '#9EB0CC';
-    ctx.textAlign = 'left';
-    ctx.fillText('ANTI-SPAM METER', meterX + 10, meterY + 16);
-
-    ctx.fillStyle = '#1B2038';
-    this.roundRectPath(meterX + 10, meterY + 24, meterW - 20, 10, 5);
-    ctx.fill();
-
-    const heatW = (meterW - 20) * Math.min(1, state.spamHeat);
-    if (heatW > 1) {
-      ctx.fillStyle = state.spamHeat > 0.66 ? '#FF264B' : state.spamHeat > 0.34 ? '#FFB800' : '#00E5FF';
-      this.roundRectPath(meterX + 10, meterY + 24, heatW, 10, 5);
-      ctx.fill();
+    const heatW = Math.max(0, trackInW * Math.min(1, state.spamHeat));
+    if (heatW > 4) {
+      const heatPal =
+        state.spamHeat > 0.65
+          ? BERRY_JAM_PALETTE
+          : state.spamHeat > 0.34
+          ? LANE_COLORS[2]
+          : LANE_COLORS[1];
+      this.drawJellyPill(meterX + 11, meterY + 27, Math.max(12, heatW), 12, 6, heatPal, 0, false);
     }
 
-    // 3. Bottom Friday Night Funkin' Tug-of-War Health Bar + Live Stats Strip
-    const hbWidth = Math.min(580, width - 44);
-    const hbHeight = 16;
+    // 4. Bottom FNF Tug-of-War Glossy Health Capsule
+    const hbWidth = Math.min(560, width - 44);
+    const hbHeight = 22;
     const hbX = (width - hbWidth) / 2;
-    const hbY = height - 38;
+    const hbY = height - 36;
 
-    ctx.fillStyle = '#090B14';
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 2.5;
-    this.roundRectPath(hbX - 2, hbY - 2, hbWidth + 4, hbHeight + 4, 9);
-    ctx.fill();
-    ctx.stroke();
+    // Rival Berry-Red base capsule
+    this.drawJellyPill(hbX, hbY, hbWidth, hbHeight, 11, BERRY_JAM_PALETTE, 4, false);
 
-    // FNF convention: Rival (Red/Magenta) on Left pushing right; Player (Neon Lime/Cyan) on Right pushing left!
+    // Player Signature ui1.png Green fill pushing from right to left!
     const playerRatio = Math.max(0, Math.min(1, stats.hp / 100));
     const splitX = hbX + hbWidth * (1 - playerRatio);
+    const playerW = hbX + hbWidth - splitX;
+    if (playerW > 12) {
+      this.drawJellyPill(
+        splitX,
+        hbY,
+        playerW,
+        hbHeight,
+        11,
+        stats.hp > 25 ? LANE_COLORS[0] : LANE_COLORS[2],
+        0,
+        true
+      );
+    }
 
-    // Rival fill (left)
-    ctx.fillStyle = '#FF2654';
-    ctx.fillRect(hbX, hbY, splitX - hbX, hbHeight);
+    // Clashing glossy mini character badges at splitX
+    this.drawJellyPill(splitX - 24, hbY - 4, 24, 28, 12, BERRY_JAM_PALETTE, 3, true);
+    this.drawJellyPill(splitX + 2, hbY - 4, 24, 28, 12, LANE_COLORS[0], 3, true);
 
-    // Player fill (right)
-    ctx.fillStyle = stats.hp > 25 ? '#2BFF88' : '#FFB800';
-    ctx.fillRect(splitX, hbY, hbX + hbWidth - splitX, hbHeight);
-
-    // Rival vs Player head icons clashing at splitX!
-    ctx.save();
-    ctx.translate(splitX, hbY + hbHeight / 2);
-    // Rival mini-icon
-    ctx.fillStyle = '#B84DFF';
-    ctx.strokeStyle = '#090B14';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(-13, 0, 11, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    // Player mini-icon
-    ctx.fillStyle = '#00E5FF';
-    ctx.beginPath();
-    ctx.arc(13, 0, 11, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
-
-    // Bottom stats readout above health bar
-    ctx.font = '700 12px Orbitron, system-ui, sans-serif';
-    ctx.fillStyle = '#EAF2FF';
-    ctx.textAlign = 'center';
-    const summary = `SCORE: ${stats.score.toLocaleString()}   |   MISSES: ${
+    const summary = `Score: ${stats.score.toLocaleString()}   •   Misses: ${
       stats.counts.MISS + stats.counts.SPAM
-    }   |   ACCURACY: ${state.accuracy.toFixed(1)}% (${state.grade})`;
-    ctx.fillText(summary, width / 2, hbY - 9);
+    }   •   Accuracy: ${state.accuracy.toFixed(1)}% (${state.grade})`;
+    this.drawOutlinedText(summary, width / 2, hbY - 13, 14, '#FFFFFF', '#151920', 4.5);
   }
 
   private drawCountdownBanner(
@@ -864,17 +839,12 @@ export class GameRenderer {
   ): void {
     const ctx = this.ctx;
     ctx.save();
-    ctx.translate(width / 2, height * 0.44);
+    ctx.translate(width / 2, height * 0.43);
     const s = 1 + kickPulse * 0.12;
     ctx.scale(s, s);
-    ctx.font = '900 68px Orbitron, Impact, system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = '#070812';
-    ctx.strokeText(text, 0, 0);
-    ctx.fillStyle = text.includes('FUNK') || text.includes('GO') ? '#2BFF88' : '#00E5FF';
-    ctx.fillText(text, 0, 0);
+    const label = text === 'FUNK!' ? 'Funk!' : text;
+    const col = label === 'Funk!' ? '#72FF1D' : '#FFFFFF';
+    this.drawOutlinedText(label, 0, 0, 74, col, '#146B04', 11);
     ctx.restore();
   }
 
