@@ -1,0 +1,16 @@
+{
+  "name": "rhythm",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Rhythm! — Friday Night Funkin'-inspired 4-key (DFJK) downscroll bar rhythm game with randomized charts, difficulty selection, and strict anti-spam mechanics.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}

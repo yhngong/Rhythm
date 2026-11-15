@@ -1,0 +1,691 @@
+import { FunkAudioEngine } from './audio';
+import { generateChartSection } from './chartGenerator';
+import { DIFFICULTIES, LANE_COLORS, LANE_KEYS } from './difficulties';
+import { CharacterPose, GameRenderer, LaneVisualState } from './renderer';
+import {
+  DifficultyConfig,
+  DifficultyId,
+  FloatingPopup,
+  GameMode,
+  HighScoreEntry,
+  HitParticle,
+  Judgment,
+  NoteBar,
+  RivalNote,
+  RunStats,
+  ScreenState,
+} from './types';
+
+const STORAGE_KEY = 'rhythm_fnf_dfjk_highscores_v1';
+
+export interface GameUiCallbacks {
+  onStateChange: (state: ScreenState) => void;
+}
+
+export class RhythmGame {
+  private canvas: HTMLCanvasElement;
+  private renderer: GameRenderer;
+  public audio: FunkAudioEngine;
+  private callbacks: GameUiCallbacks;
+
+  public state: ScreenState = 'menu';
+  public selectedDifficulty: DifficultyId = 'normal';
+  public mode: GameMode = 'stage';
+
+  private config: DifficultyConfig = DIFFICULTIES.normal;
+  private currentBpm = 132;
+  private leadInSec = 2.0;
+  private totalDurationSec = 60;
+  private generatedMeasures = 0;
+  private nextNoteId = 1;
+
+  private notes: NoteBar[] = [];
+  private rivalNotes: RivalNote[] = [];
+  private lanes: LaneVisualState[] = [0, 1, 2, 3].map(() => ({
+    pressed: false,
+    hitFlash: 0,
+    whiffFlash: 0,
+    jamRemainingSec: 0,
+  }));
+
+  // Anti-spam tracking
+  private laneWhiffTimes: number[][] = [[], [], [], []];
+  private globalWhiffTimes: number[] = [];
+  private spamHeat = 0;
+
+  public stats: RunStats = this.freshStats();
+  private popups: FloatingPopup[] = [];
+  private particles: HitParticle[] = [];
+  private playerPose: CharacterPose = { lane: -1, missTimer: 0, poseTimer: 0 };
+  private rivalPose: CharacterPose = { lane: -1, missTimer: 0, poseTimer: 0 };
+
+  private lastCountdownStep = 4;
+  private lastFramePerf = performance.now();
+  private highScores: Record<string, HighScoreEntry> = {};
+
+  constructor(canvas: HTMLCanvasElement, callbacks: GameUiCallbacks) {
+    this.canvas = canvas;
+    this.renderer = new GameRenderer(canvas);
+    this.audio = new FunkAudioEngine();
+    this.callbacks = callbacks;
+    this.highScores = this.loadHighScores();
+    this.bindInputListeners();
+  }
+
+  private freshStats(): RunStats {
+    return {
+      score: 0,
+      combo: 0,
+      maxCombo: 0,
+      hp: 50,
+      counts: {
+        SICK: 0,
+        GOOD: 0,
+        BAD: 0,
+        SHIT: 0,
+        MISS: 0,
+        SPAM: 0,
+      },
+      totalJudgedWeight: 0,
+      totalJudgedEvents: 0,
+    };
+  }
+
+  public getHighScore(diff: DifficultyId, mode: GameMode): HighScoreEntry | null {
+    return this.highScores[`${diff}_${mode}`] ?? null;
+  }
+
+  private loadHighScores(): Record<string, HighScoreEntry> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, HighScoreEntry>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private saveHighScore(cleared: boolean): void {
+    const key = `${this.selectedDifficulty}_${this.mode}`;
+    const prev = this.highScores[key];
+    const acc = this.getAccuracy();
+    const grade = this.getGrade();
+
+    const updated: HighScoreEntry = {
+      bestScore: Math.max(prev?.bestScore ?? 0, this.stats.score),
+      bestAccuracy: Math.max(prev?.bestAccuracy ?? 0, acc),
+      bestGrade:
+        !prev || this.stats.score >= prev.bestScore ? grade : prev.bestGrade,
+      maxCombo: Math.max(prev?.maxCombo ?? 0, this.stats.maxCombo),
+      clears: (prev?.clears ?? 0) + (cleared ? 1 : 0),
+    };
+    this.highScores[key] = updated;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.highScores));
+    } catch {
+      // Ignore storage quota errors in private browsing
+    }
+  }
+
+  public startRun(diffId: DifficultyId = this.selectedDifficulty, mode: GameMode = this.mode): void {
+    this.selectedDifficulty = diffId;
+    this.mode = mode;
+    this.config = DIFFICULTIES[diffId];
+    this.currentBpm = this.config.bpm;
+
+    const secPerBeat = 60 / this.currentBpm;
+    this.leadInSec = secPerBeat * 4; // 4-beat countdown
+
+    this.stats = this.freshStats();
+    this.popups = [];
+    this.particles = [];
+    this.laneWhiffTimes = [[], [], [], []];
+    this.globalWhiffTimes = [];
+    this.spamHeat = 0;
+    this.lanes.forEach((l) => {
+      l.pressed = false;
+      l.hitFlash = 0;
+      l.whiffFlash = 0;
+      l.jamRemainingSec = 0;
+    });
+    this.playerPose = { lane: -1, missTimer: 0, poseTimer: 0 };
+    this.rivalPose = { lane: -1, missTimer: 0, poseTimer: 0 };
+    this.lastCountdownStep = 4;
+
+    const initialMeasures = mode === 'endless' ? 16 : this.config.measures;
+    const section = generateChartSection(this.config, 0, initialMeasures, this.leadInSec, 1);
+    this.notes = section.playerNotes;
+    this.rivalNotes = section.rivalNotes;
+    this.generatedMeasures = section.endMeasure;
+    this.nextNoteId = section.nextNoteId;
+
+    this.totalDurationSec = this.leadInSec + this.config.measures * 4 * secPerBeat + 1.6;
+
+    this.audio.startSong(this.currentBpm, this.leadInSec);
+    this.setState('playing');
+  }
+
+  public pauseRun(): void {
+    if (this.state !== 'playing') return;
+    this.audio.pauseSong();
+    this.lanes.forEach((l) => (l.pressed = false));
+    this.setState('paused');
+  }
+
+  public resumeRun(): void {
+    if (this.state !== 'paused') return;
+    this.audio.resumeSong();
+    this.setState('playing');
+  }
+
+  public returnToMenu(): void {
+    this.audio.stopSong();
+    this.setState('menu');
+  }
+
+  private setState(next: ScreenState): void {
+    this.state = next;
+    this.callbacks.onStateChange(next);
+  }
+
+  public getAccuracy(): number {
+    if (this.stats.totalJudgedEvents === 0) return 100;
+    return Math.max(0, Math.min(100, (this.stats.totalJudgedWeight / this.stats.totalJudgedEvents) * 100));
+  }
+
+  public getGrade(): string {
+    if (this.stats.totalJudgedEvents === 0) return 'S+';
+    const acc = this.getAccuracy();
+    if (acc >= 97 && this.stats.counts.MISS === 0 && this.stats.counts.SPAM === 0) return 'S+';
+    if (acc >= 93) return 'S';
+    if (acc >= 85) return 'A';
+    if (acc >= 75) return 'B';
+    if (acc >= 62) return 'C';
+    return 'D';
+  }
+
+  private bindInputListeners(): void {
+    window.addEventListener('keydown', (e) => {
+      // Prevent OS key-repeat from auto-firing hits or false whiffs!
+      if (e.repeat) return;
+
+      const key = e.key.toLowerCase();
+
+      if (key === 'escape') {
+        if (this.state === 'playing') {
+          e.preventDefault();
+          this.pauseRun();
+          return;
+        } else if (this.state === 'paused') {
+          e.preventDefault();
+          this.resumeRun();
+          return;
+        }
+      }
+
+      if (this.state === 'gameover' || this.state === 'results') {
+        if (key === 'r' || key === 'enter') {
+          e.preventDefault();
+          this.startRun(this.selectedDifficulty, this.mode);
+          return;
+        }
+      }
+
+      if (this.state !== 'playing') return;
+
+      const laneIdx = LANE_KEYS.indexOf(key as (typeof LANE_KEYS)[number]);
+      if (laneIdx !== -1) {
+        e.preventDefault();
+        this.handleLanePress(laneIdx as 0 | 1 | 2 | 3);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const key = e.key.toLowerCase();
+      const laneIdx = LANE_KEYS.indexOf(key as (typeof LANE_KEYS)[number]);
+      if (laneIdx !== -1) {
+        this.lanes[laneIdx].pressed = false;
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      if (this.state === 'playing') {
+        this.pauseRun();
+      }
+    });
+  }
+
+  private handleLanePress(lane: 0 | 1 | 2 | 3): void {
+    const songTime = this.audio.getSongTime();
+    const laneState = this.lanes[lane];
+    laneState.pressed = true;
+
+    const { laneWidth, highwayX, receptorY } = this.renderer.getHighwayGeometry(
+      this.canvas.width,
+      this.canvas.height
+    );
+    const laneCenterX = highwayX + lane * laneWidth + laneWidth / 2;
+
+    // 1. Check if this bar is currently jammed by Anti-Spam Lockout!
+    if (laneState.jamRemainingSec > 0) {
+      this.stats.hp = Math.max(0, this.stats.hp - 2.5);
+      laneState.whiffFlash = 1;
+      this.audio.playMissSound();
+      this.spawnPopup('LOCKED!', 'NO SPAM', '#FF264B', laneCenterX, receptorY - 46, 0.82);
+      this.checkKo();
+      return;
+    }
+
+    // 2. Search for the earliest unhit note in this lane within the catch window [-150ms, +180ms]
+    let targetNote: NoteBar | null = null;
+    for (const note of this.notes) {
+      if (note.lane !== lane || note.hit || note.missed) continue;
+      const delta = note.time - songTime; // positive = early, negative = late
+      if (delta < -0.150) continue;
+      if (delta <= 0.180) {
+        targetNote = note;
+      }
+      break; // Notes are sorted chronologically
+    }
+
+    // 3. If a valid note bar is in range -> Score Judgment!
+    if (targetNote) {
+      const absDelta = Math.abs(targetNote.time - songTime);
+      targetNote.hit = true;
+
+      let judgment: Judgment;
+      let points: number;
+      let weight: number;
+      let hpDelta: number;
+      let popColor: string;
+      let popText: string;
+
+      if (absDelta <= 0.045) {
+        judgment = 'SICK';
+        points = 350;
+        weight = 1.0;
+        hpDelta = this.config.sickHpGain;
+        popColor = '#00F5FF';
+        popText = 'SICK!!';
+      } else if (absDelta <= 0.092) {
+        judgment = 'GOOD';
+        points = 200;
+        weight = 0.78;
+        hpDelta = this.config.goodHpGain;
+        popColor = '#2BFF88';
+        popText = 'GOOD!';
+      } else if (absDelta <= 0.135) {
+        judgment = 'BAD';
+        points = 60;
+        weight = 0.35;
+        hpDelta = -1.5;
+        popColor = '#FFB800';
+        popText = 'BAD';
+      } else {
+        // 135ms..180ms early/late slop trap — consumes note & breaks combo!
+        judgment = 'SHIT';
+        points = 15;
+        weight = 0.1;
+        hpDelta = -4.2;
+        popColor = '#FF5E36';
+        popText = 'EARLY!';
+      }
+
+      if (judgment === 'SHIT') {
+        this.stats.combo = 0;
+      } else {
+        this.stats.combo++;
+        this.stats.maxCombo = Math.max(this.stats.maxCombo, this.stats.combo);
+      }
+
+      const comboMultiplier = 1 + Math.min(1.5, Math.floor(this.stats.combo / 15) * 0.15);
+      this.stats.score += Math.round(points * comboMultiplier);
+      this.stats.hp = Math.max(0, Math.min(100, this.stats.hp + hpDelta));
+      this.stats.counts[judgment]++;
+      this.stats.totalJudgedWeight += weight;
+      this.stats.totalJudgedEvents++;
+
+      // Clean hits cool down anti-spam heat!
+      this.spamHeat = Math.max(0, this.spamHeat - (judgment === 'SICK' ? 0.16 : 0.09));
+
+      laneState.hitFlash = 1.0;
+      this.playerPose = { lane, missTimer: 0, poseTimer: 0.34 };
+      this.audio.playPlayerHit(targetNote.midiPitch, lane, judgment === 'SICK');
+
+      if (targetNote.duration > 0) {
+        targetNote.holding = true;
+        targetNote.lastHoldTickTime = Math.max(songTime, targetNote.time);
+      }
+
+      const msSigned = Math.round((songTime - targetNote.time) * 1000);
+      const timingTag =
+        judgment === 'SICK' ? '' : `${msSigned > 0 ? '+' : ''}${msSigned}ms`;
+      this.spawnPopup(
+        popText,
+        timingTag,
+        popColor,
+        highwayX + laneWidth * 2,
+        receptorY - 125,
+        judgment === 'SICK' ? 1.08 : 0.94
+      );
+
+      const burstCount = judgment === 'SICK' ? 14 : judgment === 'GOOD' ? 8 : 3;
+      this.spawnBurst(laneCenterX, receptorY, LANE_COLORS[lane].main, burstCount);
+
+      this.checkKo();
+      return;
+    }
+
+    // 4. NO NOTE IN WINDOW -> STRICT ANTI-SPAM PENALTY!
+    // Ignore harmless single tap in the very first 0.5s after clicking Start, otherwise enforce 100%
+    if (songTime < 0.45) return;
+
+    const nowPerf = performance.now() / 1000;
+    this.laneWhiffTimes[lane] = this.laneWhiffTimes[lane].filter((t) => nowPerf - t < 0.68);
+    this.laneWhiffTimes[lane].push(nowPerf);
+
+    this.globalWhiffTimes = this.globalWhiffTimes.filter((t) => nowPerf - t < 0.70);
+    this.globalWhiffTimes.push(nowPerf);
+
+    this.spamHeat = Math.min(1, this.spamHeat + 0.34);
+    laneState.whiffFlash = 1.0;
+
+    this.stats.combo = 0;
+    this.stats.score = Math.max(0, this.stats.score - 120);
+    this.stats.hp = Math.max(0, this.stats.hp - this.config.whiffHpPenalty);
+    this.stats.counts.SPAM++;
+    this.stats.totalJudgedEvents++; // 0 weight -> hurts accuracy!
+
+    this.playerPose = { lane: -1, missTimer: 0.32, poseTimer: 0 };
+
+    // Escalate to full Bar Jam Lockout if mashing repeatedly!
+    const laneMashing = this.laneWhiffTimes[lane].length >= 3;
+    const globalMashing = this.globalWhiffTimes.length >= 5;
+
+    if (laneMashing || globalMashing) {
+      if (globalMashing) {
+        // Lock all 4 bars briefly when mashing DFJK wildly!
+        for (const l of this.lanes) l.jamRemainingSec = Math.max(l.jamRemainingSec, 0.55);
+        this.globalWhiffTimes = [];
+      } else {
+        laneState.jamRemainingSec = 0.55;
+      }
+      this.laneWhiffTimes[lane] = [];
+      this.stats.hp = Math.max(0, this.stats.hp - 5.0);
+      this.audio.playSpamJamSound();
+      this.spawnPopup('NO SPAM!', 'BAR JAMMED', '#FF264B', laneCenterX, receptorY - 68, 0.95);
+    } else {
+      this.audio.playMissSound();
+      this.spawnPopup('GHOST!', '-120 • -HP', '#FF4D6D', laneCenterX, receptorY - 58, 0.82);
+    }
+
+    this.checkKo();
+  }
+
+  private checkKo(): boolean {
+    if (this.stats.hp <= 0 && this.state === 'playing') {
+      this.stats.hp = 0;
+      this.audio.stopSong();
+      this.audio.playSpamJamSound();
+      this.saveHighScore(false);
+      this.setState('gameover');
+      return true;
+    }
+    return false;
+  }
+
+  private spawnPopup(
+    text: string,
+    subtext: string,
+    color: string,
+    x: number,
+    y: number,
+    scale = 1
+  ): void {
+    // Keep popup list snappy
+    if (this.popups.length > 12) {
+      this.popups.shift();
+    }
+    this.popups.push({
+      text,
+      subtext: subtext || undefined,
+      color,
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 18,
+      vy: -58,
+      age: 0,
+      lifetime: 0.58,
+      scale,
+    });
+  }
+
+  private spawnBurst(x: number, y: number, color: string, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 70 + Math.random() * 210;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(ang) * spd,
+        vy: Math.sin(ang) * spd - 40,
+        size: 5 + Math.random() * 6,
+        color: i % 3 === 0 ? '#FFFFFF' : color,
+        age: 0,
+        lifetime: 0.28 + Math.random() * 0.2,
+      });
+    }
+  }
+
+  public tick(nowPerf: number): void {
+    const dt = Math.min(0.05, Math.max(0.001, (nowPerf - this.lastFramePerf) / 1000));
+    this.lastFramePerf = nowPerf;
+
+    if (this.state === 'menu') {
+      this.renderer.renderMenuBackground(this.canvas.width, this.canvas.height, nowPerf / 1000);
+      return;
+    }
+
+    const songTime = this.audio.getSongTime();
+
+    if (this.state === 'playing') {
+      // Schedule procedural funk drums & bass ahead
+      const maxMusicTime =
+        this.mode === 'endless' ? undefined : this.totalDurationSec - 0.8;
+      this.audio.updateBackingSchedule(maxMusicTime);
+
+      // Endless mode dynamic chart extension
+      if (this.mode === 'endless') {
+        const secPerMeasure = (60 / this.currentBpm) * 4;
+        const generatedEndSec = this.leadInSec + this.generatedMeasures * secPerMeasure;
+        if (generatedEndSec - songTime < 14) {
+          const next = generateChartSection(
+            this.config,
+            this.generatedMeasures,
+            8,
+            this.leadInSec,
+            this.nextNoteId
+          );
+          this.notes.push(...next.playerNotes);
+          this.rivalNotes.push(...next.rivalNotes);
+          this.generatedMeasures = next.endMeasure;
+          this.nextNoteId = next.nextNoteId;
+          // Prune old resolved notes to keep memory tiny in Endless mode
+          this.notes = this.notes.filter((n) => n.time + n.duration > songTime - 2);
+          this.rivalNotes = this.rivalNotes.filter((n) => n.time > songTime - 2);
+        }
+      }
+
+      this.updateCountdownTicks(songTime);
+      this.updateRivalNotes(songTime);
+      this.updatePlayerNotesAndHolds(songTime, dt);
+      this.updateVisualTimers(dt);
+
+      // Check Stage Clear condition
+      if (this.mode === 'stage' && songTime >= this.totalDurationSec && this.state === 'playing') {
+        this.audio.stopSong();
+        this.saveHighScore(true);
+        this.setState('results');
+      }
+    }
+
+    const countdownText = this.getCountdownLabel(songTime);
+
+    this.renderer.renderGameplay({
+      width: this.canvas.width,
+      height: this.canvas.height,
+      songTime,
+      totalDurationSec: this.totalDurationSec,
+      mode: this.mode,
+      difficulty: this.config,
+      currentBpm: this.currentBpm,
+      kickPulse: this.audio.getKickPulse(),
+      notes: this.notes,
+      lanes: this.lanes,
+      stats: this.stats,
+      accuracy: this.getAccuracy(),
+      grade: this.getGrade(),
+      spamHeat: this.spamHeat,
+      popups: this.popups,
+      particles: this.particles,
+      playerPose: this.playerPose,
+      rivalPose: this.rivalPose,
+      countdownText,
+    });
+  }
+
+  private updateCountdownTicks(songTime: number): void {
+    if (songTime > this.leadInSec + 0.25) return;
+    const beatDur = 60 / this.currentBpm;
+    const beatIdx = Math.floor(songTime / beatDur); // 0, 1, 2, 3
+    const stepRemaining = 3 - beatIdx;
+    if (stepRemaining >= 0 && stepRemaining < this.lastCountdownStep) {
+      this.lastCountdownStep = stepRemaining;
+      this.audio.playCountdownTick(stepRemaining as 3 | 2 | 1 | 0);
+    }
+  }
+
+  private getCountdownLabel(songTime: number): string | null {
+    const beatDur = 60 / this.currentBpm;
+    if (songTime < 0) return '3';
+    const beatIdx = Math.floor(songTime / beatDur);
+    if (beatIdx === 0) return '3';
+    if (beatIdx === 1) return '2';
+    if (beatIdx === 2) return '1';
+    if (beatIdx === 3) return 'FUNK!';
+    return null;
+  }
+
+  private updateRivalNotes(songTime: number): void {
+    for (const rn of this.rivalNotes) {
+      if (rn.triggered) continue;
+      if (songTime >= rn.time) {
+        rn.triggered = true;
+        this.rivalPose = { lane: rn.lane, missTimer: 0, poseTimer: Math.max(0.22, rn.duration) };
+        this.audio.playRivalNote(rn.midiPitch, rn.lane, rn.duration);
+      } else {
+        break;
+      }
+    }
+  }
+
+  private updatePlayerNotesAndHolds(songTime: number, dt: number): void {
+    const { laneWidth, highwayX, receptorY } = this.renderer.getHighwayGeometry(
+      this.canvas.width,
+      this.canvas.height
+    );
+
+    for (const note of this.notes) {
+      // 1. Active Hold Bar Sustain
+      if (note.holding && !note.holdCompleted) {
+        const endTime = note.time + note.duration;
+        if (songTime >= endTime) {
+          note.holding = false;
+          note.holdCompleted = true;
+          this.stats.score += 100;
+          this.stats.hp = Math.min(100, this.stats.hp + 1.4);
+          const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
+          this.spawnBurst(cx, receptorY, LANE_COLORS[note.lane].glow, 6);
+        } else if (!this.lanes[note.lane].pressed) {
+          // Released key! Forgive if within 110ms of tail end, otherwise drop hold
+          if (endTime - songTime <= 0.11) {
+            note.holding = false;
+            note.holdCompleted = true;
+            this.stats.score += 80;
+          } else {
+            note.holding = false;
+            note.holdReleasedEarly = true;
+            this.stats.combo = 0;
+            this.stats.hp = Math.max(0, this.stats.hp - 3.5);
+            this.checkKo();
+          }
+        } else {
+          // Holding smoothly!
+          this.stats.score += Math.round(180 * dt);
+          this.stats.hp = Math.min(100, this.stats.hp + 2.2 * dt);
+          this.lanes[note.lane].hitFlash = Math.max(this.lanes[note.lane].hitFlash, 0.55);
+          this.playerPose.lane = note.lane;
+          this.playerPose.poseTimer = 0.12;
+          if (songTime - note.lastHoldTickTime >= 0.09) {
+            note.lastHoldTickTime = songTime;
+            const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
+            this.spawnBurst(cx, receptorY, LANE_COLORS[note.lane].main, 2);
+          }
+        }
+      }
+
+      // 2. Check Unhit Notes Passing Past Receptor -> MISS!
+      if (!note.hit && !note.missed && songTime - note.time > 0.155) {
+        note.missed = true;
+        this.stats.combo = 0;
+        this.stats.counts.MISS++;
+        this.stats.totalJudgedEvents++;
+        this.stats.hp = Math.max(0, this.stats.hp - this.config.missHpPenalty);
+        this.playerPose = { lane: -1, missTimer: 0.35, poseTimer: 0 };
+        this.audio.playMissSound();
+
+        const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
+        this.spawnPopup('MISS', '', '#FF3355', cx, receptorY - 52, 0.88);
+        if (this.checkKo()) return;
+      }
+    }
+  }
+
+  private updateVisualTimers(dt: number): void {
+    this.spamHeat = Math.max(0, this.spamHeat - dt * 0.28);
+
+    for (const l of this.lanes) {
+      l.hitFlash = Math.max(0, l.hitFlash - dt * 6.5);
+      l.whiffFlash = Math.max(0, l.whiffFlash - dt * 4.5);
+      l.jamRemainingSec = Math.max(0, l.jamRemainingSec - dt);
+    }
+
+    if (this.playerPose.poseTimer > 0) {
+      this.playerPose.poseTimer -= dt;
+      if (this.playerPose.poseTimer <= 0) this.playerPose.lane = -1;
+    }
+    if (this.playerPose.missTimer > 0) {
+      this.playerPose.missTimer = Math.max(0, this.playerPose.missTimer - dt);
+    }
+
+    if (this.rivalPose.poseTimer > 0) {
+      this.rivalPose.poseTimer -= dt;
+      if (this.rivalPose.poseTimer <= 0) this.rivalPose.lane = -1;
+    }
+
+    for (const p of this.popups) {
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 95 * dt;
+    }
+    this.popups = this.popups.filter((p) => p.age < p.lifetime);
+
+    for (const pt of this.particles) {
+      pt.age += dt;
+      pt.x += pt.vx * dt;
+      pt.y += pt.vy * dt;
+      pt.vy += 320 * dt;
+    }
+    this.particles = this.particles.filter((pt) => pt.age < pt.lifetime);
+  }
+}
