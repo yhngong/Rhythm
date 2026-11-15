@@ -1,7 +1,8 @@
 import { FunkAudioEngine } from './audio';
 import { generateChartForTrack } from './chartGenerator';
-import { DIFFICULTIES, LANE_COLORS, LANE_KEYS } from './difficulties';
+import { DIFFICULTIES, LANE_KEYS } from './difficulties';
 import { CharacterPose, GameRenderer, LaneVisualState } from './renderer';
+import { GameSettings, loadSettings, NOTE_PALETTES, saveSettings } from './settings';
 import { CREO_TRACKS, CreoTrack, pickRandomCreoTrack } from './songs';
 import {
   DifficultyConfig,
@@ -30,6 +31,8 @@ export class RhythmGame {
   private callbacks: GameUiCallbacks;
 
   public state: ScreenState = 'menu';
+  public isSettingsOpen = false;
+  public settings: GameSettings = loadSettings();
   public selectedDifficulty: DifficultyId = 'normal';
   public mode: GameMode = 'stage';
   public currentTrack: CreoTrack = CREO_TRACKS[0];
@@ -71,11 +74,27 @@ export class RhythmGame {
     this.canvas = canvas;
     this.renderer = new GameRenderer(canvas);
     this.audio = new FunkAudioEngine();
+    this.audio.setVolumes(
+      this.settings.masterVolume,
+      this.settings.musicVolume,
+      this.settings.sfxVolume
+    );
     this.callbacks = callbacks;
     this.highScores = this.loadHighScores();
     this.bindInputListeners();
     // Pre-fetch the first random Creo song right away so Start feels instantaneous
     this.audio.preloadTrack(this.nextQueuedTrack);
+  }
+
+  public updateSettings(partial: Partial<GameSettings>): GameSettings {
+    this.settings = { ...this.settings, ...partial };
+    this.audio.setVolumes(
+      this.settings.masterVolume,
+      this.settings.musicVolume,
+      this.settings.sfxVolume
+    );
+    saveSettings(this.settings);
+    return this.settings;
   }
 
   private freshStats(): RunStats {
@@ -236,7 +255,7 @@ export class RhythmGame {
 
   private bindInputListeners(): void {
     window.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
+      if (e.repeat || this.isSettingsOpen) return;
 
       const key = e.key.toLowerCase();
 
@@ -404,7 +423,8 @@ export class RhythmGame {
       );
 
       const burstCount = judgment === 'SICK' ? 14 : judgment === 'GOOD' ? 8 : 3;
-      this.spawnBurst(laneCenterX, receptorY, LANE_COLORS[lane].main, burstCount);
+      const laneCols = (NOTE_PALETTES[this.settings.notePalette] ?? NOTE_PALETTES.candy).lanes;
+      this.spawnBurst(laneCenterX, receptorY, laneCols[lane].main, burstCount);
 
       this.checkKo();
       return;
@@ -515,7 +535,12 @@ export class RhythmGame {
     this.lastFramePerf = nowPerf;
 
     if (this.state === 'menu') {
-      this.renderer.renderMenuBackground(this.canvas.width, this.canvas.height, nowPerf / 1000);
+      this.renderer.renderMenuBackground(
+        this.canvas.width,
+        this.canvas.height,
+        nowPerf / 1000,
+        this.settings
+      );
       return;
     }
 
@@ -583,6 +608,7 @@ export class RhythmGame {
       totalDurationSec: this.totalDurationSec,
       mode: this.mode,
       difficulty: this.config,
+      settings: this.settings,
       trackTitle: this.currentTrack.title,
       trackArtist: this.currentTrack.artist,
       currentBpm: this.currentBpm,
@@ -643,6 +669,7 @@ export class RhythmGame {
       this.canvas.width,
       this.canvas.height
     );
+    const laneCols = (NOTE_PALETTES[this.settings.notePalette] ?? NOTE_PALETTES.candy).lanes;
 
     for (const note of this.notes) {
       if (note.time - songTime > 0.25) break;
@@ -655,7 +682,7 @@ export class RhythmGame {
           this.stats.score += 100;
           this.stats.hp = Math.min(100, this.stats.hp + 1.4);
           const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
-          this.spawnBurst(cx, receptorY, LANE_COLORS[note.lane].glow, 6);
+          this.spawnBurst(cx, receptorY, laneCols[note.lane].glow, 6);
         } else if (!this.lanes[note.lane].pressed) {
           if (endTime - songTime <= 0.11) {
             note.holding = false;
@@ -677,7 +704,7 @@ export class RhythmGame {
           if (songTime - note.lastHoldTickTime >= 0.09) {
             note.lastHoldTickTime = songTime;
             const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
-            this.spawnBurst(cx, receptorY, LANE_COLORS[note.lane].main, 2);
+            this.spawnBurst(cx, receptorY, laneCols[note.lane].main, 2);
           }
         }
       }

@@ -1,11 +1,42 @@
-:root {
+:root,
+[data-theme='dark'] {
   /* Exact matte dark slate-charcoal backdrop from ui1.png */
-  --bg-slate: #252a34;
-  --bg-slate-deep: #1d2129;
-  --card-slate: #2d3340;
-  --card-slate-lip: #171b22;
-  --text-white: #ffffff;
+  --bg-page: #252a34;
+  --overlay-backdrop: rgba(24, 28, 37, 0.74);
+  --shell-bg: #2d3340;
+  --shell-border: #3c4454;
+  --shell-lip: #171b22;
+  --shell-shadow: rgba(0, 0, 0, 0.55);
+  --well-bg: #232833;
+  --well-border: #181c24;
+  --well-lip: #161920;
+  --card-idle-border: #394152;
+  --text-primary: #ffffff;
   --text-soft: #bfc9dc;
+  --text-muted-strong: #d6dfef;
+  --link-color: #63f0ff;
+  --link-hover: #9ef6ff;
+  --slider-track: #181c24;
+}
+
+[data-theme='light'] {
+  /* Crisp Daylight Cloud & Porcelain 3D Candy Theme */
+  --bg-page: #e8f0fb;
+  --overlay-backdrop: rgba(214, 226, 245, 0.74);
+  --shell-bg: #f7faff;
+  --shell-border: #c5d4eb;
+  --shell-lip: #9eb1cf;
+  --shell-shadow: rgba(31, 52, 88, 0.22);
+  --well-bg: #e7effa;
+  --well-border: #c4d3ea;
+  --well-lip: #aebfd9;
+  --card-idle-border: #bfd0e8;
+  --text-primary: #1c2536;
+  --text-soft: #4a5b78;
+  --text-muted-strong: #2c3b55;
+  --link-color: #0277bd;
+  --link-hover: #039be5;
+  --slider-track: #cad7ec;
 }
 
 * {
@@ -19,8 +50,8 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-slate);
-  color: var(--text-white);
+  background: var(--bg-page);
+  color: var(--text-primary);
   font-family: 'Fredoka', 'Nunito', 'Arial Rounded MT Bold', system-ui, sans-serif;
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -87,6 +118,15 @@ body {
   --c-stroke: #161a22;
 }
 
+[data-theme='light'] .theme-slate {
+  --c-top: #7b8ba6;
+  --c-mid: #61728f;
+  --c-bot: #4b5b76;
+  --c-lip: #313e54;
+  --c-rim: #9fb0cc;
+  --c-stroke: #2a3548;
+}
+
 /* ============================================================================
    SIGNATURE UI1.PNG 3D GLOSSY BUTTONS & TWIN SPECULAR SHINE DROPLETS
    ============================================================================ */
@@ -100,9 +140,9 @@ body {
   background: linear-gradient(180deg, var(--c-top) 0%, var(--c-mid) 52%, var(--c-bot) 100%);
   box-shadow:
     0 8px 0 var(--c-lip),
-    0 13px 18px rgba(0, 0, 0, 0.38),
-    inset 0 0 0 3px rgba(255, 255, 255, 0.26),
-    inset 0 3px 0 rgba(255, 255, 255, 0.35);
+    0 13px 18px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.28),
+    inset 0 3px 0 rgba(255, 255, 255, 0.36);
   cursor: pointer;
   transition: transform 0.1s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.1s ease, filter 0.12s ease;
   outline: none;
@@ -113,8 +153,8 @@ body {
   filter: brightness(1.04);
   box-shadow:
     0 10px 0 var(--c-lip),
-    0 16px 22px rgba(0, 0, 0, 0.42),
-    inset 0 0 0 3px rgba(255, 255, 255, 0.32),
+    0 16px 22px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.34),
     inset 0 3px 0 rgba(255, 255, 255, 0.42);
 }
 
@@ -122,18 +162,16 @@ body {
   transform: translateY(6px);
   box-shadow:
     0 2px 0 var(--c-lip),
-    0 4px 8px rgba(0, 0, 0, 0.32),
+    0 4px 8px rgba(0, 0, 0, 0.26),
     inset 0 0 0 3px rgba(255, 255, 255, 0.24);
 }
 
-/* Shape 1: Left Circle Button from ui1.png */
 .jelly-circle {
   width: 72px;
   height: 72px;
   border-radius: 50%;
 }
 
-/* Shape 2: Center Wide Rounded Pill Button ("Again" / "Play!") from ui1.png */
 .jelly-wide {
   min-width: 228px;
   height: 74px;
@@ -141,19 +179,27 @@ body {
   border-radius: 26px;
 }
 
-/* Shape 3: Right Squircle Button ("X") from ui1.png */
 .jelly-squircle {
   width: 72px;
   height: 72px;
   border-radius: 22px;
 }
 
+.jelly-sm-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  box-shadow:
+    0 5px 0 var(--c-lip),
+    0 8px 14px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 2.5px rgba(255, 255, 255, 0.28);
+}
+
 .jelly-btn svg {
-  filter: drop-shadow(0 3px 0 rgba(10, 68, 3, 0.48));
+  filter: drop-shadow(0 3px 0 rgba(10, 48, 20, 0.38));
   pointer-events: none;
 }
 
-/* Clean pure-white plump rounded text with soft 3D shadow matching "Again" in ui1.png */
 .btn-label {
   font-family: 'Fredoka', 'Nunito', sans-serif;
   font-size: 36px;
@@ -165,7 +211,6 @@ body {
   pointer-events: none;
 }
 
-/* Twin angled white glossy shine droplets in top-right corner (exact ui1.png signature!) */
 .shine-dots {
   position: absolute;
   top: 8px;
@@ -188,7 +233,6 @@ body {
   border-radius: 999px;
 }
 
-/* Smaller upper-left droplet */
 .shine-dots::before {
   width: 6px;
   height: 4px;
@@ -197,7 +241,6 @@ body {
   transform: rotate(24deg);
 }
 
-/* Larger lower-right droplet */
 .shine-dots::after {
   width: 11px;
   height: 5.5px;
@@ -219,14 +262,14 @@ body {
   top: 16px;
   left: 18px;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   z-index: 30;
 }
 
 #top-controls .jelly-circle,
 #top-controls .jelly-squircle {
-  width: 54px;
-  height: 54px;
+  width: 52px;
+  height: 52px;
 }
 
 #top-controls .jelly-squircle {
@@ -234,14 +277,14 @@ body {
 }
 
 #top-controls .shine-dots {
-  transform: scale(0.78);
+  transform: scale(0.76);
   transform-origin: top right;
   top: 6px;
   right: 9px;
 }
 
 /* ============================================================================
-   MENU & MODAL SHELLS (Matte Dark Slate #252A34 + Rounded 3D Panels)
+   MENU & MODAL SHELLS (Supports Dark Slate & Light Cloud Themes!)
    ============================================================================ */
 
 .overlay-screen {
@@ -251,28 +294,32 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px;
-  background: rgba(27, 31, 40, 0.72);
+  padding: 16px;
+  background: var(--overlay-backdrop);
   backdrop-filter: blur(6px);
+}
+
+.settings-overlay {
+  z-index: 40;
 }
 
 .menu-shell {
   width: min(820px, 100%);
   max-height: 95vh;
   overflow-y: auto;
-  background: var(--card-slate);
-  border: 3px solid #3c4454;
+  background: var(--shell-bg);
+  border: 3px solid var(--shell-border);
   border-radius: 32px;
-  padding: 26px 30px 30px;
+  padding: 24px 28px 26px;
   box-shadow:
-    0 10px 0 var(--card-slate-lip),
-    0 26px 55px rgba(0, 0, 0, 0.55),
-    inset 0 3px 0 rgba(255, 255, 255, 0.09);
+    0 10px 0 var(--shell-lip),
+    0 26px 55px var(--shell-shadow),
+    inset 0 3px 0 rgba(255, 255, 255, 0.18);
 }
 
 .hero-header {
   text-align: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .pill-tag {
@@ -286,21 +333,21 @@ body {
   background: linear-gradient(180deg, #4b5568, #333b49);
   border: 2px solid #1c2029;
   box-shadow: 0 3px 0 #181c24, inset 0 2px 0 rgba(255, 255, 255, 0.2);
-  padding: 5px 14px;
+  padding: 4px 14px;
   border-radius: 999px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .logo-title {
   font-family: 'Fredoka', 'Nunito', sans-serif;
-  font-size: clamp(44px, 6.5vw, 66px);
+  font-size: clamp(42px, 6.2vw, 62px);
   font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1.02;
   color: #ffffff;
   -webkit-text-stroke: 6px #181c24;
   paint-order: stroke fill;
-  text-shadow: 0 6px 0 #181c24, 0 12px 22px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 6px 0 #181c24, 0 12px 22px rgba(0, 0, 0, 0.28);
 }
 
 .logo-title span {
@@ -316,21 +363,21 @@ body {
 }
 
 .subtitle strong {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
-/* DFJK Candy Bar Demo + Anti-Spam Banner */
+/* DFJK Candy Note Demo + Anti-Spam Banner */
 .controls-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  background: #232833;
-  border: 2.5px solid #181c24;
-  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.35), 0 2px 0 rgba(255, 255, 255, 0.06);
+  background: var(--well-bg);
+  border: 2.5px solid var(--well-border);
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.14), 0 2px 0 rgba(255, 255, 255, 0.08);
   border-radius: 22px;
-  padding: 13px 18px;
-  margin-bottom: 18px;
+  padding: 12px 18px;
+  margin-bottom: 16px;
 }
 
 .key-bars-demo {
@@ -343,6 +390,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-end;
   gap: 7px;
   width: 56px;
 }
@@ -354,7 +402,33 @@ body {
   border-radius: 9px;
   border: none;
   background: linear-gradient(180deg, var(--c-top) 0%, var(--c-mid) 55%, var(--c-bot) 100%);
-  box-shadow: 0 3.5px 0 var(--c-lip), inset 0 0 0 2px rgba(255, 255, 255, 0.28);
+  box-shadow: 0 3.5px 0 var(--c-lip), inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+
+.demo-bar.shape-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+.demo-bar.shape-diamond {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  transform: rotate(45deg);
+  margin-bottom: 2px;
+}
+
+.demo-bar.shape-arrow {
+  width: 30px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .demo-lane kbd {
@@ -376,7 +450,7 @@ body {
   font-size: 13.5px;
   font-weight: 700;
   line-height: 1.38;
-  color: #d6dfef;
+  color: var(--text-muted-strong);
 }
 
 .shield-pill {
@@ -425,14 +499,14 @@ body {
   font-weight: 700;
   color: #ffffff;
   text-shadow: 0 2px 2px rgba(0, 0, 0, 0.28);
-  padding: 8px 18px;
+  padding: 8px 16px;
   border-radius: 14px;
   border: none;
   background: linear-gradient(180deg, var(--c-top) 0%, var(--c-mid) 52%, var(--c-bot) 100%);
   box-shadow:
     0 4px 0 var(--c-lip),
-    0 6px 10px rgba(0, 0, 0, 0.28),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.25);
+    0 6px 10px rgba(0, 0, 0, 0.22),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.26);
   cursor: pointer;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
@@ -446,22 +520,22 @@ body {
 .difficulty-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  margin-bottom: 24px;
+  gap: 12px;
+  margin-bottom: 20px;
 }
 
 .diff-card {
   position: relative;
   text-align: left;
-  background: #232833;
-  border: 3px solid #394152;
+  background: var(--well-bg);
+  border: 3px solid var(--card-idle-border);
   border-radius: 22px;
-  padding: 15px 18px;
+  padding: 14px 18px;
   cursor: pointer;
   box-shadow:
-    0 6px 0 #161920,
-    0 10px 18px rgba(0, 0, 0, 0.32),
-    inset 0 2px 0 rgba(255, 255, 255, 0.08);
+    0 6px 0 var(--well-lip),
+    0 10px 18px rgba(0, 0, 0, 0.18),
+    inset 0 2px 0 rgba(255, 255, 255, 0.12);
   transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
 }
 
@@ -470,13 +544,12 @@ body {
   border-color: var(--c-mid);
 }
 
-/* Selected difficulty turns into a vibrant glossy 3D ui1.png pill card! */
 .diff-card.selected {
   border-color: transparent;
   background: linear-gradient(180deg, var(--c-top) 0%, var(--c-mid) 52%, var(--c-bot) 100%);
   box-shadow:
     0 7px 0 var(--c-lip),
-    0 14px 24px rgba(0, 0, 0, 0.4),
+    0 14px 24px rgba(0, 0, 0, 0.3),
     inset 0 0 0 3px rgba(255, 255, 255, 0.28),
     inset 0 3px 0 rgba(255, 255, 255, 0.35);
 }
@@ -490,13 +563,13 @@ body {
 
 .diff-name {
   font-family: 'Fredoka', sans-serif;
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 700;
-  color: #ffffff;
-  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.35);
+  color: var(--text-primary);
 }
 
 .diff-card.selected .diff-name {
+  color: #ffffff;
   text-shadow: 0 2px 3px rgba(0, 0, 0, 0.28), 0 2px 0 var(--c-lip);
 }
 
@@ -505,7 +578,7 @@ body {
   font-size: 11.5px;
   font-weight: 900;
   color: #ffffff;
-  background: rgba(18, 22, 30, 0.45);
+  background: rgba(18, 22, 30, 0.52);
   padding: 3px 10px;
   border-radius: 999px;
 }
@@ -521,17 +594,21 @@ body {
 
 .diff-card.selected .diff-desc {
   color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
 }
 
 .diff-best {
   font-family: 'Nunito', sans-serif;
   font-size: 11.5px;
   font-weight: 900;
-  color: #d5e0f2;
-  background: rgba(15, 18, 26, 0.32);
+  color: var(--text-muted-strong);
+  background: rgba(15, 22, 36, 0.12);
   border-radius: 10px;
   padding: 5px 10px;
+}
+
+[data-theme='dark'] .diff-best {
+  background: rgba(15, 18, 26, 0.34);
 }
 
 .diff-card.selected .diff-best {
@@ -543,29 +620,32 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  gap: 16px;
   padding-bottom: 4px;
 }
 
 /* ============================================================================
-   PAUSE & RESULTS MODALS + EXACT UI1.PNG [CIRCLE] [WIDE] [SQUIRCLE] TRIO BAR
+   PAUSE, RESULTS & SETTINGS MODALS
    ============================================================================ */
 
 .modal-shell {
   width: min(540px, 100%);
-  background: var(--card-slate);
-  border: 3px solid #3e4758;
+  max-height: 94vh;
+  overflow-y: auto;
+  background: var(--shell-bg);
+  border: 3px solid var(--shell-border);
   border-radius: 32px;
-  padding: 28px 28px 30px;
+  padding: 26px 26px 28px;
   text-align: center;
   box-shadow:
-    0 10px 0 var(--card-slate-lip),
-    0 28px 60px rgba(0, 0, 0, 0.6),
-    inset 0 3px 0 rgba(255, 255, 255, 0.1);
+    0 10px 0 var(--shell-lip),
+    0 28px 60px var(--shell-shadow),
+    inset 0 3px 0 rgba(255, 255, 255, 0.16);
 }
 
 .bubble-heading {
   font-family: 'Fredoka', sans-serif;
-  font-size: 38px;
+  font-size: 36px;
   font-weight: 700;
   color: #ffffff;
   -webkit-text-stroke: 4.5px #181c24;
@@ -578,7 +658,11 @@ body {
   font-family: 'Nunito', sans-serif;
   font-weight: 800;
   color: var(--text-soft);
-  margin-bottom: 22px;
+  margin-bottom: 16px;
+}
+
+.pause-Quick-row {
+  margin-bottom: 16px;
 }
 
 .ui1-trio-bar {
@@ -606,12 +690,12 @@ body {
   align-items: center;
   justify-content: center;
   gap: 22px;
-  margin: 16px 0;
-  background: #232833;
-  border: 2.5px solid #181c24;
+  margin: 14px 0;
+  background: var(--well-bg);
+  border: 2.5px solid var(--well-border);
   border-radius: 24px;
-  padding: 16px 22px;
-  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.35);
+  padding: 15px 20px;
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.15);
 }
 
 .grade-orb {
@@ -668,18 +752,19 @@ body {
   margin-top: 6px;
   font-family: 'Fredoka', sans-serif;
   font-size: 17px;
+  color: var(--text-primary);
 }
 
 .breakdown-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .bd-item {
-  background: #232833;
-  border: 2px solid #181c24;
+  background: var(--well-bg);
+  border: 2px solid var(--well-border);
   border-radius: 14px;
   padding: 8px 12px;
   display: flex;
@@ -688,41 +773,302 @@ body {
   font-family: 'Fredoka', sans-serif;
   font-size: 13px;
   font-weight: 700;
+  color: var(--text-primary);
 }
 
 .bd-item span {
   color: var(--bd-col);
 }
 
-@media (max-width: 680px) {
-  .controls-banner {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .difficulty-grid {
-    grid-template-columns: 1fr;
-  }
-  .breakdown-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .jelly-wide {
-    min-width: 170px;
-    padding: 0 24px;
-  }
-  .btn-label {
-    font-size: 28px;
-  }
+/* ============================================================================
+   SETTINGS MODAL STYLES (Live Preview + Note Shapes + Palettes + Volume Sliders)
+   ============================================================================ */
+
+.settings-shell {
+  width: min(630px, 100%);
+  text-align: left;
+  padding: 18px 22px 20px;
 }
 
+.menu-shell::-webkit-scrollbar,
+.modal-shell::-webkit-scrollbar {
+  width: 8px;
+}
+
+.menu-shell::-webkit-scrollbar-track,
+.modal-shell::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 18px 0;
+}
+
+.menu-shell::-webkit-scrollbar-thumb,
+.modal-shell::-webkit-scrollbar-thumb {
+  background: rgba(125, 145, 178, 0.42);
+  border-radius: 999px;
+}
+
+.settings-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.settings-heading {
+  font-size: 30px;
+  margin-bottom: 0;
+}
+
+.preview-card {
+  background: var(--well-bg);
+  border: 2.5px solid var(--well-border);
+  border-radius: 18px;
+  padding: 8px 12px 10px;
+  margin-bottom: 10px;
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.14);
+}
+
+.preview-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.preview-tag {
+  font-family: 'Nunito', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--text-soft);
+}
+
+#settings-preview-canvas {
+  width: 100%;
+  height: 94px;
+  display: block;
+  border-radius: 12px;
+  border: 2px solid var(--card-idle-border);
+}
+
+.settings-section {
+  background: var(--well-bg);
+  border: 2.5px solid var(--well-border);
+  border-radius: 18px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.settings-row-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-label {
+  display: block;
+  font-family: 'Fredoka', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.palette-heading {
+  margin-top: 12px;
+}
+
+.shape-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.shape-option-btn {
+  position: relative;
+  background: var(--shell-bg);
+  border: 2.5px solid var(--card-idle-border);
+  border-radius: 16px;
+  padding: 9px 6px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--well-lip);
+  transition: transform 0.1s ease, border-color 0.1s ease;
+  color: var(--text-primary);
+  font-family: 'Fredoka', sans-serif;
+}
+
+.shape-option-btn:hover {
+  transform: translateY(-1px);
+  border-color: #17c8ff;
+}
+
+.shape-option-btn.active {
+  border-color: transparent;
+  background: linear-gradient(180deg, #72ff1d 0%, #3fe30e 52%, #1eb806 100%);
+  box-shadow:
+    0 4px 0 #127803,
+    inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+.shape-icon {
+  display: block;
+  font-size: 19px;
+  line-height: 1.15;
+  margin-bottom: 3px;
+}
+
+.shape-title {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.shape-sub {
+  display: block;
+  font-family: 'Nunito', sans-serif;
+  font-size: 10.5px;
+  font-weight: 800;
+  opacity: 0.85;
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.palette-option-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--shell-bg);
+  border: 2.5px solid var(--card-idle-border);
+  border-radius: 14px;
+  padding: 8px 10px;
+  cursor: pointer;
+  box-shadow: 0 3.5px 0 var(--well-lip);
+  font-family: 'Fredoka', sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.palette-option-btn:hover {
+  transform: translateY(-1px);
+  border-color: #17c8ff;
+}
+
+.palette-option-btn.active {
+  border-color: #17c8ff;
+  box-shadow:
+    0 3.5px 0 #045c96,
+    0 0 0 2px rgba(23, 200, 255, 0.25);
+}
+
+.swatch-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.swatch-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45);
+}
+
+/* Volume Sliders */
+.volume-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slider-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.slider-val {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(180deg, #63f0ff, #0593de);
+  box-shadow: 0 2px 0 #045c96;
+  padding: 2px 9px;
+  border-radius: 999px;
+}
+
+.jelly-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--slider-track);
+  border: 2px solid var(--card-idle-border);
+  outline: none;
+  cursor: pointer;
+}
+
+.jelly-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #72ff1d 0%, #3fe30e 55%, #1eb806 100%);
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 3px 0 #127803, 0 4px 8px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.jelly-slider::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #72ff1d 0%, #3fe30e 55%, #1eb806 100%);
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 3px 0 #127803, 0 4px 8px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.jelly-done-btn {
+  min-width: 160px;
+  height: 50px;
+  border-radius: 18px;
+}
+
+.done-label {
+  font-size: 24px;
+}
 
 /* ============================================================================
    MUSIC BY CREO CREDIT BADGE & LINKS
    ============================================================================ */
 
 .creo-credits-bar {
-  margin-top: 18px;
-  background: #232833;
-  border: 2px solid #181c24;
+  margin-top: 16px;
+  background: var(--well-bg);
+  border: 2px solid var(--well-border);
   border-radius: 18px;
   padding: 10px 16px;
   display: flex;
@@ -748,12 +1094,12 @@ body {
 }
 
 .creo-tracks strong {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .creo-links a,
 .track-credit-sub a {
-  color: #63f0ff;
+  color: var(--link-color);
   text-decoration: none;
   font-weight: 900;
 }
@@ -761,9 +1107,32 @@ body {
 .creo-links a:hover,
 .track-credit-sub a:hover {
   text-decoration: underline;
-  color: #9ef6ff;
+  color: var(--link-hover);
 }
 
 .track-credit-sub {
   margin-bottom: 12px;
+}
+
+@media (max-width: 680px) {
+  .controls-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .difficulty-grid {
+    grid-template-columns: 1fr;
+  }
+  .shape-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .breakdown-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .jelly-wide {
+    min-width: 170px;
+    padding: 0 24px;
+  }
+  .btn-label {
+    font-size: 28px;
+  }
 }

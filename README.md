@@ -25,6 +25,11 @@ Official links: [creo-music.com](https://creo-music.com) · [Creo on Newgrounds]
   - **No Ghost Tapping**: Pressing `D`, `F`, `J`, or `K` with no note in the catch window triggers an immediate **Ghost Whiff** (resets combo, deducts score & health, and lowers accuracy).
   - **OS Key-Repeat Filtering**: Holding a key down never auto-fires extra hits.
   - **Bar Jam Lockout**: Rapid empty-lane mashing fills the **No-Spam Guard** meter and temporarily **jams** the spammed catcher bar(s) with an extra health penalty.
+- **Full Customization Settings (Persisted in `localStorage`)**:
+  - **Note Shapes**: Switch between **Glossy Bar**, **Jelly Orb**, **Crystal Gem**, and **Funk Arrow** (`◀ ▼ ▲ ▶`) with a live animated 4-lane preview.
+  - **Note Color Palettes**: Choose from **Candy Classic**, **Cyber Neon**, **Pastel Pop**, **Solar Sunset**, or **2-Hand Split**.
+  - **Independent Volume Controls**: Real-time sliders for **Master Volume**, **Music Volume (Creo)**, and **Hit SFX Volume**.
+  - **Dark & Light Modes**: Switch between **Dark Slate** and **Light Cloud** themes across both UI menus and gameplay canvas.
 
 ## Controls
 

@@ -4,6 +4,7 @@ export class FunkAudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private musicGain: GainNode | null = null;
+  private sfxGain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
   private freqBins: Uint8Array<ArrayBuffer> | null = null;
   private noiseBuffer: AudioBuffer | null = null;
@@ -23,6 +24,8 @@ export class FunkAudioEngine {
   private isLoading = false;
   private isMuted = false;
   private volume = 0.82;
+  private musicVolume = 0.9;
+  private sfxVolume = 0.85;
 
   // Sample-accurate hardware clock + automatic wall-clock fallback watchdog
   private leadInSec = 2.0;
@@ -49,7 +52,11 @@ export class FunkAudioEngine {
       this.masterGain.connect(this.ctx.destination);
 
       this.musicGain = this.ctx.createGain();
-      this.musicGain.gain.value = 0.9;
+      this.musicGain.gain.value = this.musicVolume;
+
+      this.sfxGain = this.ctx.createGain();
+      this.sfxGain.gain.value = this.sfxVolume;
+      this.sfxGain.connect(this.masterGain);
 
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 256;
@@ -208,8 +215,12 @@ export class FunkAudioEngine {
     this.activeSource = src;
   }
 
-  public toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
+  public getMuted(): boolean {
+    return this.isMuted;
+  }
+
+  public setMuted(muted: boolean): boolean {
+    this.isMuted = muted;
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setTargetAtTime(
         this.isMuted ? 0 : this.volume,
@@ -218,6 +229,29 @@ export class FunkAudioEngine {
       );
     }
     return this.isMuted;
+  }
+
+  public toggleMute(): boolean {
+    return this.setMuted(!this.isMuted);
+  }
+
+  public setVolumes(master: number, music: number, sfx: number): void {
+    this.volume = Math.max(0, Math.min(1, master));
+    this.musicVolume = Math.max(0, Math.min(1, music));
+    this.sfxVolume = Math.max(0, Math.min(1, sfx));
+
+    if (this.ctx) {
+      const now = this.ctx.currentTime;
+      if (this.masterGain) {
+        this.masterGain.gain.setTargetAtTime(this.isMuted ? 0 : this.volume, now, 0.015);
+      }
+      if (this.musicGain) {
+        this.musicGain.gain.setTargetAtTime(this.musicVolume, now, 0.015);
+      }
+      if (this.sfxGain) {
+        this.sfxGain.gain.setTargetAtTime(this.sfxVolume, now, 0.015);
+      }
+    }
   }
 
   public isTrackLoading(): boolean {
@@ -385,7 +419,7 @@ export class FunkAudioEngine {
    */
   public playPlayerHit(isSick: boolean): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain || !this.noiseBuffer || (ctx.state as string) !== 'running') return;
+    if (!this.sfxGain || !this.noiseBuffer || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
 
     const osc = ctx.createOscillator();
@@ -398,7 +432,7 @@ export class FunkAudioEngine {
     oGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
 
     osc.connect(oGain);
-    oGain.connect(this.masterGain);
+    oGain.connect(this.sfxGain);
     osc.onended = () => {
       osc.disconnect();
       oGain.disconnect();
@@ -419,7 +453,7 @@ export class FunkAudioEngine {
 
     snap.connect(bp);
     bp.connect(nGain);
-    nGain.connect(this.masterGain);
+    nGain.connect(this.sfxGain);
     snap.onended = () => {
       snap.disconnect();
       bp.disconnect();
@@ -431,7 +465,7 @@ export class FunkAudioEngine {
 
   public playMissSound(): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain || (ctx.state as string) !== 'running') return;
+    if (!this.sfxGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
 
     const osc = ctx.createOscillator();
@@ -444,7 +478,7 @@ export class FunkAudioEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
 
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain);
     osc.onended = () => {
       osc.disconnect();
       gain.disconnect();
@@ -455,7 +489,7 @@ export class FunkAudioEngine {
 
   public playSpamJamSound(): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain || (ctx.state as string) !== 'running') return;
+    if (!this.sfxGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
 
     for (const detune of [-16, 17]) {
@@ -469,7 +503,7 @@ export class FunkAudioEngine {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.23);
 
       osc.connect(gain);
-      gain.connect(this.masterGain);
+      gain.connect(this.sfxGain);
       osc.onended = () => {
         osc.disconnect();
         gain.disconnect();
@@ -481,7 +515,7 @@ export class FunkAudioEngine {
 
   public playCountdownTick(step: 3 | 2 | 1 | 0): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain || (ctx.state as string) !== 'running') return;
+    if (!this.sfxGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
     const freq = step === 0 ? 880 : step === 1 ? 587.33 : step === 2 ? 523.25 : 440;
 
@@ -497,7 +531,7 @@ export class FunkAudioEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + (step === 0 ? 0.24 : 0.14));
 
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain);
     osc.onended = () => {
       osc.disconnect();
       gain.disconnect();
@@ -508,7 +542,7 @@ export class FunkAudioEngine {
 
   public playUiSelect(): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain || (ctx.state as string) !== 'running') return;
+    if (!this.sfxGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
@@ -518,7 +552,7 @@ export class FunkAudioEngine {
     gain.gain.setValueAtTime(0.12, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
     osc.connect(gain);
-    gain.connect(this.masterGain);
+    gain.connect(this.sfxGain);
     osc.onended = () => {
       osc.disconnect();
       gain.disconnect();

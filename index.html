@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -14,11 +14,10 @@
   <body>
     <canvas id="game-canvas"></canvas>
 
-    <!-- Top-left floating glossy 3D icon buttons (Circle Sound + Squircle Pause) -->
+    <!-- Top-left floating glossy 3D icon buttons (Circle Sound + Circle Gear Settings + Squircle Pause) -->
     <div id="top-controls">
       <button id="btn-mute" class="jelly-btn jelly-circle theme-green" title="Sound On / Off (M)" aria-label="Toggle Sound">
         <span class="shine-dots"></span>
-        <!-- Chunky rounded speaker SVG -->
         <svg id="icon-sound-on" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
           <path
             d="M14 25h9l12-10c2.5-2 6-.2 6 3v28c0 3.2-3.5 5-6 3L23 39h-9c-2.8 0-5-2.2-5-5v-4c0-2.8 2.2-5 5-5z"
@@ -47,6 +46,20 @@
         </svg>
       </button>
 
+      <button id="btn-settings-top" class="jelly-btn jelly-circle theme-cyan" title="Settings" aria-label="Open Settings">
+        <span class="shine-dots"></span>
+        <svg viewBox="0 0 64 64" width="27" height="27" aria-hidden="true">
+          <path
+            d="M28.5 10h7l1.4 5.6a17 17 0 0 1 4.2 2.4l5.5-1.7 3.5 6-4.1 4a17.5 17.5 0 0 1 0 4.8l4.1 4-3.5 6-5.5-1.7a17 17 0 0 1-4.2 2.4L35.5 54h-7l-1.4-5.6a17 17 0 0 1-4.2-2.4l-5.5 1.7-3.5-6 4.1-4a17.5 17.5 0 0 1 0-4.8l-4.1-4 3.5-6 5.5 1.7a17 17 0 0 1 4.2-2.4L28.5 10z"
+            fill="#ffffff"
+            stroke="#ffffff"
+            stroke-width="3"
+            stroke-linejoin="round"
+          />
+          <circle cx="32" cy="32" r="7.5" fill="#0ea5e9" />
+        </svg>
+      </button>
+
       <button id="btn-pause" class="jelly-btn jelly-squircle theme-green hidden" title="Pause (ESC)" aria-label="Pause Game">
         <span class="shine-dots"></span>
         <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true">
@@ -63,13 +76,13 @@
           <div class="pill-tag">4-KEY DOWNSCROLL BAR FUNK</div>
           <h1 class="logo-title">Rhythm<span>!</span></h1>
           <p class="subtitle">
-            Catch randomized falling bars with <strong>D &middot; F &middot; J &middot; K</strong>
+            Catch randomized falling notes with <strong>D &middot; F &middot; J &middot; K</strong>
           </p>
         </div>
 
         <!-- Glossy Candy DFJK Legend + Anti-Spam Notice -->
         <div class="controls-banner">
-          <div class="key-bars-demo">
+          <div id="menu-demo-lanes" class="key-bars-demo">
             <div class="demo-lane">
               <div class="demo-bar theme-green"><span class="shine-dots mini"></span></div>
               <kbd class="theme-green">D</kbd>
@@ -91,7 +104,7 @@
             <span class="shield-pill">No-Spam Guard</span>
             <p>
               Empty-lane taps trigger a <strong>Ghost Whiff</strong> (-HP &amp; combo reset). Mashing keys
-              <strong>jams</strong> your catcher bars!
+              <strong>jams</strong> your catcher receptors!
             </p>
           </div>
         </div>
@@ -112,8 +125,22 @@
         <!-- 4 Glossy 3D Difficulty Cards -->
         <div id="difficulty-grid" class="difficulty-grid"></div>
 
-        <!-- Signature ui1.png Action Button -->
+        <!-- Signature ui1.png Action Row: [Gear Settings] [  Play!  ] -->
         <div class="ui1-action-row">
+          <button id="btn-settings-menu" class="jelly-btn jelly-circle theme-green" title="Customize Notes, Volume &amp; Theme" aria-label="Settings">
+            <span class="shine-dots"></span>
+            <svg viewBox="0 0 64 64" width="36" height="36" aria-hidden="true">
+              <path
+                d="M28.5 10h7l1.4 5.6a17 17 0 0 1 4.2 2.4l5.5-1.7 3.5 6-4.1 4a17.5 17.5 0 0 1 0 4.8l4.1 4-3.5 6-5.5-1.7a17 17 0 0 1-4.2 2.4L35.5 54h-7l-1.4-5.6a17 17 0 0 1-4.2-2.4l-5.5 1.7-3.5-6 4.1-4a17.5 17.5 0 0 1 0-4.8l-4.1-4 3.5-6 5.5 1.7a17 17 0 0 1 4.2-2.4L28.5 10z"
+                fill="#ffffff"
+                stroke="#ffffff"
+                stroke-width="3"
+                stroke-linejoin="round"
+              />
+              <circle cx="32" cy="32" r="7.5" fill="#32cc0c" />
+            </svg>
+          </button>
+
           <button id="btn-start" class="jelly-btn jelly-wide theme-green">
             <span class="shine-dots"></span>
             <span class="btn-label">Play!</span>
@@ -142,20 +169,32 @@
         <h2 class="bubble-heading">Paused</h2>
         <p id="pause-track-credit" class="modal-sub">♪ Song: Creo — Dimension</p>
 
-        <!-- Exact ui1.png 3-button layout: [Circle Gear = Difficulty] [Wide Green = Resume] [Squircle X = Menu] -->
+        <div class="pause-Quick-row">
+          <button id="btn-settings-pause" class="jelly-pill-sm theme-cyan">
+            <span class="shine-dots mini"></span>⚙ Customize Notes &amp; Volume
+          </button>
+        </div>
+
+        <!-- Exact ui1.png 3-button layout: [Circle Gear/Refresh] [Wide Green = Resume] [Squircle X = Menu] -->
         <div class="ui1-trio-bar">
-          <button id="btn-restart-pause" class="jelly-btn jelly-circle theme-cyan" title="New Randomized Track">
+          <button id="btn-restart-pause" class="jelly-btn jelly-circle theme-gold" title="New Randomized Track">
             <span class="shine-dots"></span>
-            <!-- Chunky Gear/Refresh icon matching ui1.png left button -->
-            <svg viewBox="0 0 64 64" width="34" height="34" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="32" height="32" aria-hidden="true">
               <path
-                d="M28.5 10h7l1.4 5.6a17 17 0 0 1 4.2 2.4l5.5-1.7 3.5 6-4.1 4a17.5 17.5 0 0 1 0 4.8l4.1 4-3.5 6-5.5-1.7a17 17 0 0 1-4.2 2.4L35.5 54h-7l-1.4-5.6a17 17 0 0 1-4.2-2.4l-5.5 1.7-3.5-6 4.1-4a17.5 17.5 0 0 1 0-4.8l-4.1-4 3.5-6 5.5 1.7a17 17 0 0 1 4.2-2.4L28.5 10z"
-                fill="#ffffff"
+                d="M46 20A18 18 0 1 0 50 35"
+                fill="none"
                 stroke="#ffffff"
-                stroke-width="3"
+                stroke-width="7.5"
+                stroke-linecap="round"
+              />
+              <path
+                d="M47 10v13h-13"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="7.5"
+                stroke-linecap="round"
                 stroke-linejoin="round"
               />
-              <circle cx="32" cy="32" r="7.5" fill="#0ea5e9" class="gear-hole-cyan" />
             </svg>
           </button>
 
@@ -166,7 +205,6 @@
 
           <button id="btn-menu-pause" class="jelly-btn jelly-squircle theme-berry" title="Exit to Menu">
             <span class="shine-dots"></span>
-            <!-- Chunky rounded X matching ui1.png right button -->
             <svg viewBox="0 0 64 64" width="30" height="30" aria-hidden="true">
               <path
                 d="M20 20L44 44M44 20L20 44"
@@ -179,7 +217,7 @@
           </button>
         </div>
         <div class="trio-captions">
-          <span>New Chart</span>
+          <span>New Song</span>
           <span>Continue (ESC)</span>
           <span>Menu</span>
         </div>
@@ -217,17 +255,17 @@
         </div>
 
         <div class="breakdown-grid">
-          <div class="bd-item" style="--bd-col: #47e8ff"><span>Sick!</span><strong id="bd-sick">0</strong></div>
-          <div class="bd-item" style="--bd-col: #56f019"><span>Good</span><strong id="bd-good">0</strong></div>
-          <div class="bd-item" style="--bd-col: #ffc826"><span>Bad</span><strong id="bd-bad">0</strong></div>
+          <div class="bd-item" style="--bd-col: #17c8ff"><span>Sick!</span><strong id="bd-sick">0</strong></div>
+          <div class="bd-item" style="--bd-col: #3fe30e"><span>Good</span><strong id="bd-good">0</strong></div>
+          <div class="bd-item" style="--bd-col: #ffb30f"><span>Bad</span><strong id="bd-bad">0</strong></div>
           <div class="bd-item" style="--bd-col: #ff8533"><span>Early</span><strong id="bd-shit">0</strong></div>
           <div class="bd-item" style="--bd-col: #ff476e"><span>Miss</span><strong id="bd-miss">0</strong></div>
           <div class="bd-item" style="--bd-col: #ff2e55"><span>Spam</span><strong id="bd-spam">0</strong></div>
         </div>
 
-        <!-- EXACT ui1.png 3-Button Bar: [Circle Gear] [   Again   ] [Squircle X] -->
+        <!-- EXACT ui1.png 3-Button Bar: [Circle Gear = Settings] [   Again   ] [Squircle X = Menu] -->
         <div class="ui1-trio-bar">
-          <button id="btn-gear-results" class="jelly-btn jelly-circle theme-green" title="Change Difficulty">
+          <button id="btn-gear-results" class="jelly-btn jelly-circle theme-green" title="Settings">
             <span class="shine-dots"></span>
             <svg viewBox="0 0 64 64" width="36" height="36" aria-hidden="true">
               <path
@@ -257,6 +295,100 @@
                 stroke-linecap="round"
               />
             </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS MODAL (Note Shape & Color Customizer + Volume Sliders + Light/Dark Mode!) -->
+    <div id="settings-screen" class="overlay-screen settings-overlay hidden">
+      <div class="modal-shell settings-shell">
+        <div class="settings-header-row">
+          <div>
+            <div class="pill-tag">CUSTOMIZE</div>
+            <h2 class="bubble-heading settings-heading">Settings</h2>
+          </div>
+          <button id="btn-x-settings" class="jelly-btn jelly-squircle jelly-sm-icon theme-berry" title="Close Settings (ESC)" aria-label="Close Settings">
+            <span class="shine-dots mini"></span>
+            <svg viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+              <path
+                d="M20 20L44 44M44 20L20 44"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="11"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Live Animated 4-Lane Preview Strip -->
+        <div class="preview-card">
+          <div class="preview-label-row">
+            <span class="settings-label">Live Note Preview</span>
+            <span id="preview-summary-tag" class="preview-tag">Glossy Bar &bull; Candy Classic</span>
+          </div>
+          <canvas id="settings-preview-canvas" width="480" height="96"></canvas>
+        </div>
+
+        <!-- 1. Theme Mode: Dark or Light -->
+        <div class="settings-section">
+          <div class="settings-row-inline">
+            <span class="settings-label">Appearance</span>
+            <div class="mode-toggle" role="group" aria-label="Theme Mode">
+              <button class="theme-mode-btn jelly-pill-sm theme-green" data-theme-mode="dark">
+                <span class="shine-dots mini"></span>🌙 Dark Mode
+              </button>
+              <button class="theme-mode-btn jelly-pill-sm theme-slate" data-theme-mode="light">
+                <span class="shine-dots mini"></span>☀️ Light Mode
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Note Appearance: Shape & Color Palette -->
+        <div class="settings-section">
+          <span class="settings-label">Note Shape</span>
+          <div id="shape-grid" class="shape-grid"></div>
+
+          <span class="settings-label palette-heading">Note Color Palette</span>
+          <div id="palette-grid" class="palette-grid"></div>
+        </div>
+
+        <!-- 3. Volume Controls -->
+        <div class="settings-section volume-section">
+          <div class="slider-row">
+            <div class="slider-top">
+              <label for="slider-master" class="settings-label">Master Volume</label>
+              <span id="val-master" class="slider-val">82%</span>
+            </div>
+            <input id="slider-master" class="jelly-slider" type="range" min="0" max="100" step="1" value="82" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-top">
+              <label for="slider-music" class="settings-label">Music Volume (Creo)</label>
+              <span id="val-music" class="slider-val">90%</span>
+            </div>
+            <input id="slider-music" class="jelly-slider" type="range" min="0" max="100" step="1" value="90" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-top">
+              <label for="slider-sfx" class="settings-label">Hit SFX Volume</label>
+              <span id="val-sfx" class="slider-val">85%</span>
+            </div>
+            <input id="slider-sfx" class="jelly-slider" type="range" min="0" max="100" step="1" value="85" />
+          </div>
+        </div>
+
+        <div class="settings-footer">
+          <button id="btn-reset-settings" class="jelly-pill-sm theme-slate" type="button">
+            Reset Defaults
+          </button>
+          <button id="btn-done-settings" class="jelly-btn jelly-wide jelly-done-btn theme-green" type="button">
+            <span class="shine-dots"></span>
+            <span class="btn-label done-label">Done</span>
           </button>
         </div>
       </div>
