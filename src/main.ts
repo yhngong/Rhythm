@@ -168,6 +168,10 @@ function handleScreenStateChange(state: ScreenState): void {
 
   if (state === 'menu') {
     renderDifficultyCards();
+  } else if (state === 'paused') {
+    const t = game.currentTrack;
+    const pauseCredit = document.getElementById('pause-track-credit') as HTMLElement;
+    pauseCredit.innerHTML = `♪ Playing: <strong>${t.title}</strong> &mdash; Music by <a href="${t.url}" target="_blank" rel="noopener noreferrer">Creo</a>`;
   } else if (state === 'results' || state === 'gameover') {
     populateResultsModal(state === 'results');
   }
@@ -180,6 +184,9 @@ function populateResultsModal(cleared: boolean): void {
   const gradeText = document.getElementById('res-grade-text') as HTMLSpanElement;
 
   const cfg = DIFFICULTIES[game.selectedDifficulty];
+  const t = game.currentTrack;
+  const resCredit = document.getElementById('res-track-credit') as HTMLElement;
+  resCredit.innerHTML = `♪ Song: <strong>${t.title}</strong> &bull; Music by <a href="${t.url}" target="_blank" rel="noopener noreferrer">Creo</a>`;
   gradeOrb.className = 'grade-orb';
 
   if (cleared) {

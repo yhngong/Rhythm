@@ -1,7 +1,8 @@
 import { FunkAudioEngine } from './audio';
-import { generateChartSection } from './chartGenerator';
+import { generateChartForTrack } from './chartGenerator';
 import { DIFFICULTIES, LANE_COLORS, LANE_KEYS } from './difficulties';
 import { CharacterPose, GameRenderer, LaneVisualState } from './renderer';
+import { CREO_TRACKS, CreoTrack, pickRandomCreoTrack } from './songs';
 import {
   DifficultyConfig,
   DifficultyId,
@@ -31,12 +32,14 @@ export class RhythmGame {
   public state: ScreenState = 'menu';
   public selectedDifficulty: DifficultyId = 'normal';
   public mode: GameMode = 'stage';
+  public currentTrack: CreoTrack = CREO_TRACKS[0];
 
   private config: DifficultyConfig = DIFFICULTIES.normal;
-  private currentBpm = 132;
+  private currentBpm = 115;
   private leadInSec = 2.0;
-  private totalDurationSec = 60;
+  private totalDurationSec = 192;
   private generatedMeasures = 0;
+  private loopOffsetSec = 0;
   private nextNoteId = 1;
 
   private notes: NoteBar[] = [];
@@ -113,8 +116,7 @@ export class RhythmGame {
     const updated: HighScoreEntry = {
       bestScore: Math.max(prev?.bestScore ?? 0, this.stats.score),
       bestAccuracy: Math.max(prev?.bestAccuracy ?? 0, acc),
-      bestGrade:
-        !prev || this.stats.score >= prev.bestScore ? grade : prev.bestGrade,
+      bestGrade: !prev || this.stats.score >= prev.bestScore ? grade : prev.bestGrade,
       maxCombo: Math.max(prev?.maxCombo ?? 0, this.stats.maxCombo),
       clears: (prev?.clears ?? 0) + (cleared ? 1 : 0),
     };
@@ -126,14 +128,21 @@ export class RhythmGame {
     }
   }
 
-  public startRun(diffId: DifficultyId = this.selectedDifficulty, mode: GameMode = this.mode): void {
+  public startRun(
+    diffId: DifficultyId = this.selectedDifficulty,
+    mode: GameMode = this.mode
+  ): void {
     this.selectedDifficulty = diffId;
     this.mode = mode;
     this.config = DIFFICULTIES[diffId];
-    this.currentBpm = this.config.bpm;
+
+    // Randomly pick 1 of the 4 Creo songs every run!
+    this.currentTrack = pickRandomCreoTrack();
+    this.currentBpm = this.currentTrack.bpm;
 
     const secPerBeat = 60 / this.currentBpm;
-    this.leadInSec = secPerBeat * 4; // 4-beat countdown
+    this.leadInSec = secPerBeat * 4; // 4-beat pre-song countdown (-leadInSec .. 0)
+    this.loopOffsetSec = 0;
 
     this.stats = this.freshStats();
     this.popups = [];
@@ -151,16 +160,35 @@ export class RhythmGame {
     this.rivalPose = { lane: -1, missTimer: 0, poseTimer: 0 };
     this.lastCountdownStep = 4;
 
-    const initialMeasures = mode === 'endless' ? 16 : this.config.measures;
-    const section = generateChartSection(this.config, 0, initialMeasures, this.leadInSec, 1);
+    const secPerMeasure = secPerBeat * 4;
+    const fullTrackMeasures = Math.ceil(this.currentTrack.durationSec / secPerMeasure);
+    const initialMeasures = mode === 'endless' ? 16 : fullTrackMeasures;
+
+    const section = generateChartForTrack(
+      this.config,
+      this.currentTrack,
+      0,
+      initialMeasures,
+      1,
+      0
+    );
     this.notes = section.playerNotes;
     this.rivalNotes = section.rivalNotes;
     this.generatedMeasures = section.endMeasure;
     this.nextNoteId = section.nextNoteId;
 
-    this.totalDurationSec = this.leadInSec + this.config.measures * 4 * secPerBeat + 1.6;
+    this.totalDurationSec = this.currentTrack.durationSec;
 
-    this.audio.startSong(this.currentBpm, this.leadInSec);
+    this.audio.startTrack(
+      this.currentTrack,
+      this.leadInSec,
+      mode === 'endless',
+      (newOffsetSec) => {
+        // When Endless loops the Creo MP3, reset measure counter for the new loop!
+        this.loopOffsetSec = newOffsetSec;
+        this.generatedMeasures = 0;
+      }
+    );
     this.setState('playing');
   }
 
@@ -189,7 +217,10 @@ export class RhythmGame {
 
   public getAccuracy(): number {
     if (this.stats.totalJudgedEvents === 0) return 100;
-    return Math.max(0, Math.min(100, (this.stats.totalJudgedWeight / this.stats.totalJudgedEvents) * 100));
+    return Math.max(
+      0,
+      Math.min(100, (this.stats.totalJudgedWeight / this.stats.totalJudgedEvents) * 100)
+    );
   }
 
   public getGrade(): string {
@@ -205,7 +236,6 @@ export class RhythmGame {
 
   private bindInputListeners(): void {
     window.addEventListener('keydown', (e) => {
-      // Prevent OS key-repeat from auto-firing hits or false whiffs!
       if (e.repeat) return;
 
       const key = e.key.toLowerCase();
@@ -270,7 +300,7 @@ export class RhythmGame {
       this.stats.hp = Math.max(0, this.stats.hp - 2.5);
       laneState.whiffFlash = 1;
       this.audio.playMissSound();
-      this.spawnPopup('LOCKED!', 'NO SPAM', '#FF264B', laneCenterX, receptorY - 46, 0.82);
+      this.spawnPopup('Locked!', 'No Spam', '#FF264B', laneCenterX, receptorY - 46, 0.82);
       this.checkKo();
       return;
     }
@@ -279,15 +309,15 @@ export class RhythmGame {
     let targetNote: NoteBar | null = null;
     for (const note of this.notes) {
       if (note.lane !== lane || note.hit || note.missed) continue;
-      const delta = note.time - songTime; // positive = early, negative = late
-      if (delta < -0.150) continue;
-      if (delta <= 0.180) {
+      const delta = note.time - songTime;
+      if (delta < -0.15) continue;
+      if (delta <= 0.18) {
         targetNote = note;
       }
-      break; // Notes are sorted chronologically
+      break;
     }
 
-    // 3. If a valid note bar is in range -> Score Judgment!
+    // 3. Valid note bar in range -> Score Judgment!
     if (targetNote) {
       const absDelta = Math.abs(targetNote.time - songTime);
       targetNote.hit = true;
@@ -321,7 +351,6 @@ export class RhythmGame {
         popColor = '#FFE44D';
         popText = 'Bad';
       } else {
-        // 135ms..180ms early/late slop trap — consumes note & breaks combo!
         judgment = 'SHIT';
         points = 15;
         weight = 0.1;
@@ -344,12 +373,11 @@ export class RhythmGame {
       this.stats.totalJudgedWeight += weight;
       this.stats.totalJudgedEvents++;
 
-      // Clean hits cool down anti-spam heat!
       this.spamHeat = Math.max(0, this.spamHeat - (judgment === 'SICK' ? 0.16 : 0.09));
 
       laneState.hitFlash = 1.0;
       this.playerPose = { lane, missTimer: 0, poseTimer: 0.34 };
-      this.audio.playPlayerHit(targetNote.midiPitch, lane, judgment === 'SICK');
+      this.audio.playPlayerHit(judgment === 'SICK');
 
       if (targetNote.duration > 0) {
         targetNote.holding = true;
@@ -357,8 +385,7 @@ export class RhythmGame {
       }
 
       const msSigned = Math.round((songTime - targetNote.time) * 1000);
-      const timingTag =
-        judgment === 'SICK' ? '' : `${msSigned > 0 ? '+' : ''}${msSigned}ms`;
+      const timingTag = judgment === 'SICK' ? '' : `${msSigned > 0 ? '+' : ''}${msSigned}ms`;
       this.spawnPopup(
         popText,
         timingTag,
@@ -376,14 +403,13 @@ export class RhythmGame {
     }
 
     // 4. NO NOTE IN WINDOW -> STRICT ANTI-SPAM PENALTY!
-    // Ignore harmless single tap in the very first 0.5s after clicking Start, otherwise enforce 100%
-    if (songTime < 0.45) return;
+    if (songTime < -this.leadInSec + 0.35) return;
 
     const nowPerf = performance.now() / 1000;
     this.laneWhiffTimes[lane] = this.laneWhiffTimes[lane].filter((t) => nowPerf - t < 0.68);
     this.laneWhiffTimes[lane].push(nowPerf);
 
-    this.globalWhiffTimes = this.globalWhiffTimes.filter((t) => nowPerf - t < 0.70);
+    this.globalWhiffTimes = this.globalWhiffTimes.filter((t) => nowPerf - t < 0.7);
     this.globalWhiffTimes.push(nowPerf);
 
     this.spamHeat = Math.min(1, this.spamHeat + 0.34);
@@ -393,17 +419,15 @@ export class RhythmGame {
     this.stats.score = Math.max(0, this.stats.score - 120);
     this.stats.hp = Math.max(0, this.stats.hp - this.config.whiffHpPenalty);
     this.stats.counts.SPAM++;
-    this.stats.totalJudgedEvents++; // 0 weight -> hurts accuracy!
+    this.stats.totalJudgedEvents++;
 
     this.playerPose = { lane: -1, missTimer: 0.32, poseTimer: 0 };
 
-    // Escalate to full Bar Jam Lockout if mashing repeatedly!
     const laneMashing = this.laneWhiffTimes[lane].length >= 3;
     const globalMashing = this.globalWhiffTimes.length >= 5;
 
     if (laneMashing || globalMashing) {
       if (globalMashing) {
-        // Lock all 4 bars briefly when mashing DFJK wildly!
         for (const l of this.lanes) l.jamRemainingSec = Math.max(l.jamRemainingSec, 0.55);
         this.globalWhiffTimes = [];
       } else {
@@ -441,7 +465,6 @@ export class RhythmGame {
     y: number,
     scale = 1
   ): void {
-    // Keep popup list snappy
     if (this.popups.length > 12) {
       this.popups.shift();
     }
@@ -488,28 +511,28 @@ export class RhythmGame {
     const songTime = this.audio.getSongTime();
 
     if (this.state === 'playing') {
-      // Schedule procedural funk drums & bass ahead
-      const maxMusicTime =
-        this.mode === 'endless' ? undefined : this.totalDurationSec - 0.8;
-      this.audio.updateBackingSchedule(maxMusicTime);
-
-      // Endless mode dynamic chart extension
+      // Endless mode dynamic chart extension synced to current Creo track loop
       if (this.mode === 'endless') {
         const secPerMeasure = (60 / this.currentBpm) * 4;
-        const generatedEndSec = this.leadInSec + this.generatedMeasures * secPerMeasure;
-        if (generatedEndSec - songTime < 14) {
-          const next = generateChartSection(
+        const maxMeasuresInLoop = Math.floor(this.currentTrack.durationSec / secPerMeasure);
+        const generatedEndSec = this.loopOffsetSec + this.generatedMeasures * secPerMeasure;
+        if (
+          this.generatedMeasures < maxMeasuresInLoop &&
+          generatedEndSec - songTime < 15
+        ) {
+          const toGen = Math.min(8, maxMeasuresInLoop - this.generatedMeasures);
+          const next = generateChartForTrack(
             this.config,
+            this.currentTrack,
             this.generatedMeasures,
-            8,
-            this.leadInSec,
-            this.nextNoteId
+            toGen,
+            this.nextNoteId,
+            this.loopOffsetSec
           );
           this.notes.push(...next.playerNotes);
           this.rivalNotes.push(...next.rivalNotes);
           this.generatedMeasures = next.endMeasure;
           this.nextNoteId = next.nextNoteId;
-          // Prune old resolved notes to keep memory tiny in Endless mode
           this.notes = this.notes.filter((n) => n.time + n.duration > songTime - 2);
           this.rivalNotes = this.rivalNotes.filter((n) => n.time > songTime - 2);
         }
@@ -520,8 +543,8 @@ export class RhythmGame {
       this.updatePlayerNotesAndHolds(songTime, dt);
       this.updateVisualTimers(dt);
 
-      // Check Stage Clear condition
-      if (this.mode === 'stage' && songTime >= this.totalDurationSec && this.state === 'playing') {
+      // Check Stage Clear when the Creo song completes!
+      if (this.mode === 'stage' && this.audio.isTrackEnded() && this.state === 'playing') {
         this.audio.stopSong();
         this.saveHighScore(true);
         this.setState('results');
@@ -537,6 +560,8 @@ export class RhythmGame {
       totalDurationSec: this.totalDurationSec,
       mode: this.mode,
       difficulty: this.config,
+      trackTitle: this.currentTrack.title,
+      trackArtist: this.currentTrack.artist,
       currentBpm: this.currentBpm,
       kickPulse: this.audio.getKickPulse(),
       notes: this.notes,
@@ -554,9 +579,11 @@ export class RhythmGame {
   }
 
   private updateCountdownTicks(songTime: number): void {
-    if (songTime > this.leadInSec + 0.25) return;
+    if (songTime > 0.25) return;
     const beatDur = 60 / this.currentBpm;
-    const beatIdx = Math.floor(songTime / beatDur); // 0, 1, 2, 3
+    // songTime runs from -4*beatDur up to 0
+    const elapsedInCountdown = songTime + this.leadInSec;
+    const beatIdx = Math.max(0, Math.floor(elapsedInCountdown / beatDur)); // 0, 1, 2, 3
     const stepRemaining = 3 - beatIdx;
     if (stepRemaining >= 0 && stepRemaining < this.lastCountdownStep) {
       this.lastCountdownStep = stepRemaining;
@@ -565,14 +592,14 @@ export class RhythmGame {
   }
 
   private getCountdownLabel(songTime: number): string | null {
+    if (songTime >= 0) return null;
     const beatDur = 60 / this.currentBpm;
-    if (songTime < 0) return '3';
-    const beatIdx = Math.floor(songTime / beatDur);
-    if (beatIdx === 0) return '3';
+    const elapsed = songTime + this.leadInSec;
+    const beatIdx = Math.floor(elapsed / beatDur);
+    if (beatIdx <= 0) return '3';
     if (beatIdx === 1) return '2';
     if (beatIdx === 2) return '1';
-    if (beatIdx === 3) return 'FUNK!';
-    return null;
+    return 'FUNK!';
   }
 
   private updateRivalNotes(songTime: number): void {
@@ -581,7 +608,6 @@ export class RhythmGame {
       if (songTime >= rn.time) {
         rn.triggered = true;
         this.rivalPose = { lane: rn.lane, missTimer: 0, poseTimer: Math.max(0.22, rn.duration) };
-        this.audio.playRivalNote(rn.midiPitch, rn.lane, rn.duration);
       } else {
         break;
       }
@@ -595,7 +621,6 @@ export class RhythmGame {
     );
 
     for (const note of this.notes) {
-      // 1. Active Hold Bar Sustain
       if (note.holding && !note.holdCompleted) {
         const endTime = note.time + note.duration;
         if (songTime >= endTime) {
@@ -606,7 +631,6 @@ export class RhythmGame {
           const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
           this.spawnBurst(cx, receptorY, LANE_COLORS[note.lane].glow, 6);
         } else if (!this.lanes[note.lane].pressed) {
-          // Released key! Forgive if within 110ms of tail end, otherwise drop hold
           if (endTime - songTime <= 0.11) {
             note.holding = false;
             note.holdCompleted = true;
@@ -619,7 +643,6 @@ export class RhythmGame {
             this.checkKo();
           }
         } else {
-          // Holding smoothly!
           this.stats.score += Math.round(180 * dt);
           this.stats.hp = Math.min(100, this.stats.hp + 2.2 * dt);
           this.lanes[note.lane].hitFlash = Math.max(this.lanes[note.lane].hitFlash, 0.55);
@@ -633,7 +656,6 @@ export class RhythmGame {
         }
       }
 
-      // 2. Check Unhit Notes Passing Past Receptor -> MISS!
       if (!note.hit && !note.missed && songTime - note.time > 0.155) {
         note.missed = true;
         this.stats.combo = 0;

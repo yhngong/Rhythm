@@ -28,6 +28,8 @@ export interface RenderFrameState {
   totalDurationSec: number;
   mode: GameMode;
   difficulty: DifficultyConfig;
+  trackTitle: string;
+  trackArtist: string;
   currentBpm: number;
   kickPulse: number;
   notes: NoteBar[];
@@ -519,7 +521,7 @@ export class GameRenderer {
 
     // Scrolling beat & measure horizontal lines
     const secPerBeat = 60 / bpm;
-    const firstBeat = Math.max(0, Math.floor((songTime - 0.3) / secPerBeat));
+    const firstBeat = Math.floor((songTime - 0.3) / secPerBeat);
     const maxVisibleTime = songTime + (receptorY + 40) / scrollSpeed;
     const lastBeat = Math.ceil(maxVisibleTime / secPerBeat);
 
@@ -732,20 +734,45 @@ export class GameRenderer {
     const topBarX = (width - topBarW) / 2;
     this.drawJellyPill(topBarX, 12, topBarW, 20, 10, SLATE_IDLE_PALETTE, 4, false);
 
+    const clampedSongTime = Math.max(0, songTime);
     const pct =
       mode === 'endless'
-        ? (songTime % 30) / 30
-        : Math.max(0, Math.min(1, songTime / Math.max(1, totalDurationSec)));
+        ? (clampedSongTime % 30) / 30
+        : Math.max(0, Math.min(1, clampedSongTime / Math.max(1, totalDurationSec)));
     const fillW = Math.max(22, (topBarW - 6) * pct);
     this.drawJellyPill(topBarX + 3, 14, fillW, 16, 8, LANE_COLORS[0], 0, true);
 
     const timeLabel =
       mode === 'endless'
-        ? `${difficulty.name} • Endless (${Math.round(state.currentBpm)} BPM) • ${this.formatTime(songTime)}`
-        : `${difficulty.name} — ${difficulty.subtitle} • ${this.formatTime(
-            Math.max(0, totalDurationSec - songTime)
+        ? `♪ ${state.trackArtist} — ${state.trackTitle} • ${difficulty.name} Endless • ${this.formatTime(
+            clampedSongTime
+          )}`
+        : `♪ ${state.trackArtist} — ${state.trackTitle} • ${difficulty.name} • ${this.formatTime(
+            Math.max(0, totalDurationSec - clampedSongTime)
           )}`;
     this.drawOutlinedText(timeLabel, width / 2, 46, 13.5, '#E8EFFC', '#151920', 4);
+
+    // Opening "Now Playing — Music by Creo" banner during countdown & intro!
+    if (songTime < 3.5) {
+      const fadeAlpha = songTime < 2.5 ? 1 : Math.max(0, 1 - (songTime - 2.5));
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = fadeAlpha;
+      const badgeW = 290;
+      const badgeX = (width - badgeW) / 2;
+      const badgeY = 64;
+      this.drawJellyPill(badgeX, badgeY, badgeW, 34, 14, LANE_COLORS[1], 4, true);
+      this.drawOutlinedText(
+        `Now Playing: ${state.trackTitle} — Music by ${state.trackArtist}`,
+        width / 2,
+        badgeY + 17,
+        13,
+        '#FFFFFF',
+        '#045388',
+        3.5
+      );
+      ctx.restore();
+    }
 
     // 2. Chunky Bubble Combo Counter
     if (stats.combo >= 3) {

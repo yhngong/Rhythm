@@ -1,45 +1,87 @@
-const BASS_ROOTS = [36, 44, 41, 43]; // C2, Ab2, F2, G2
-
-function midiToFreq(midi: number): number {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
+import { CreoTrack } from './songs';
 
 export class FunkAudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private freqBins: Uint8Array<ArrayBuffer> | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
-  private songStartCtxTime = 0;
-  private pauseOffsetSec = 0;
+  private musicEl: HTMLAudioElement | null = null;
+  private mediaSourceConnected = false;
+
+  private currentTrack: CreoTrack | null = null;
+  private endlessMode = false;
   private isPlaying = false;
   private isPaused = false;
   private isMuted = false;
-  private volume = 0.75;
+  private volume = 0.82;
 
-  private bpm = 132;
+  // High-precision lead-in + drift-corrected MP3 clock
   private leadInSec = 2.0;
-  private nextScheduledStep = 0;
-  private lastKickTime = -10;
+  private leadInStartCtxTime = 0;
+  private pauseSongTime = 0;
+  private mp3Started = false;
+  private loopTimeOffset = 0;
+  private clockAnchorCtxTime = 0;
+  private clockAnchorSongTime = 0;
+
+  private smoothedBassPulse = 0;
+  private onLoopCallback: ((newOffsetSec: number) => void) | null = null;
 
   public ensureContext(): AudioContext {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
-
-      const comp = this.ctx.createDynamicsCompressor();
-      comp.threshold.value = -14;
-      comp.knee.value = 18;
-      comp.ratio.value = 6;
-      comp.attack.value = 0.004;
-      comp.release.value = 0.14;
 
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
-      this.masterGain.connect(comp);
-      comp.connect(this.ctx.destination);
+      this.masterGain.connect(this.ctx.destination);
+
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = 0.9;
+
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.65;
+      this.freqBins = new Uint8Array(this.analyser.frequencyBinCount);
+
+      this.musicGain.connect(this.analyser);
+      this.analyser.connect(this.masterGain);
 
       this.noiseBuffer = this.buildNoiseBuffer(this.ctx);
     }
+
+    if (!this.musicEl) {
+      this.musicEl = new Audio();
+      this.musicEl.preload = 'auto';
+      this.musicEl.crossOrigin = 'anonymous';
+      this.musicEl.addEventListener('ended', () => {
+        if (!this.isPlaying || this.isPaused || !this.currentTrack || !this.musicEl) return;
+        if (this.endlessMode) {
+          this.loopTimeOffset += this.currentTrack.durationSec;
+          this.musicEl.currentTime = 0;
+          void this.musicEl.play();
+          if (this.ctx) {
+            this.clockAnchorCtxTime = this.ctx.currentTime;
+            this.clockAnchorSongTime = this.loopTimeOffset;
+          }
+          if (this.onLoopCallback) {
+            this.onLoopCallback(this.loopTimeOffset);
+          }
+        }
+      });
+    }
+
+    if (!this.mediaSourceConnected && this.musicEl && this.musicGain) {
+      const srcNode = this.ctx.createMediaElementSource(this.musicEl);
+      srcNode.connect(this.musicGain);
+      this.mediaSourceConnected = true;
+    }
+
     if (this.ctx.state === 'suspended') {
       void this.ctx.resume();
     }
@@ -47,7 +89,7 @@ export class FunkAudioEngine {
   }
 
   private buildNoiseBuffer(ctx: AudioContext): AudioBuffer {
-    const length = Math.floor(ctx.sampleRate * 0.4);
+    const length = Math.floor(ctx.sampleRate * 0.25);
     const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < length; i++) {
@@ -68,310 +110,215 @@ export class FunkAudioEngine {
     return this.isMuted;
   }
 
-  public getMuted(): boolean {
-    return this.isMuted;
-  }
-
-  public startSong(bpm: number, leadInSec: number): void {
+  public startTrack(
+    track: CreoTrack,
+    leadInSec: number,
+    endless: boolean,
+    onEndlessLoop?: (newOffsetSec: number) => void
+  ): void {
     const ctx = this.ensureContext();
-    this.bpm = bpm;
+    if (!this.musicEl) return;
+
+    this.currentTrack = track;
     this.leadInSec = leadInSec;
-    this.songStartCtxTime = ctx.currentTime;
-    this.pauseOffsetSec = 0;
+    this.endlessMode = endless;
+    this.onLoopCallback = onEndlessLoop ?? null;
+
+    this.musicEl.pause();
+    this.musicEl.src = track.src;
+    this.musicEl.currentTime = 0;
+    this.musicEl.load();
+
+    // Prime/unlock HTMLAudioElement inside user gesture so delayed start after countdown never blocks
+    this.musicEl.muted = true;
+    const unlockPromise = this.musicEl.play();
+    if (unlockPromise !== undefined) {
+      unlockPromise
+        .then(() => {
+          if (!this.mp3Started && this.musicEl) {
+            this.musicEl.pause();
+            this.musicEl.currentTime = 0;
+            this.musicEl.muted = false;
+          }
+        })
+        .catch(() => {
+          if (this.musicEl) this.musicEl.muted = false;
+        });
+    }
+
+    this.leadInStartCtxTime = ctx.currentTime;
+    this.clockAnchorCtxTime = ctx.currentTime;
+    this.clockAnchorSongTime = -leadInSec;
+    this.pauseSongTime = -leadInSec;
+    this.loopTimeOffset = 0;
+    this.mp3Started = false;
     this.isPlaying = true;
     this.isPaused = false;
-    this.nextScheduledStep = 0;
-    this.lastKickTime = -10;
+    this.smoothedBassPulse = 0;
   }
 
   public pauseSong(): void {
-    if (!this.isPlaying || this.isPaused || !this.ctx) return;
-    this.pauseOffsetSec = this.ctx.currentTime - this.songStartCtxTime;
+    if (!this.isPlaying || this.isPaused) return;
+    this.pauseSongTime = this.getSongTime();
     this.isPaused = true;
+    if (this.mp3Started && this.musicEl) {
+      this.musicEl.pause();
+    }
   }
 
   public resumeSong(): void {
     if (!this.isPlaying || !this.isPaused) return;
     const ctx = this.ensureContext();
-    this.songStartCtxTime = ctx.currentTime - this.pauseOffsetSec;
     this.isPaused = false;
+
+    if (this.pauseSongTime < 0) {
+      // Still in countdown
+      this.leadInStartCtxTime = ctx.currentTime - (this.pauseSongTime + this.leadInSec);
+      this.clockAnchorCtxTime = ctx.currentTime;
+      this.clockAnchorSongTime = this.pauseSongTime;
+    } else if (this.musicEl) {
+      this.mp3Started = true;
+      this.musicEl.muted = false;
+      const localTarget = Math.max(0, this.pauseSongTime - this.loopTimeOffset);
+      this.musicEl.currentTime = localTarget;
+      void this.musicEl.play();
+      this.clockAnchorCtxTime = ctx.currentTime;
+      this.clockAnchorSongTime = this.pauseSongTime;
+    }
   }
 
   public stopSong(): void {
     this.isPlaying = false;
     this.isPaused = false;
+    this.mp3Started = false;
+    if (this.musicEl) {
+      this.musicEl.pause();
+      this.musicEl.currentTime = 0;
+    }
   }
 
+  /**
+   * Returns butter-smooth, drift-corrected song time in seconds:
+   *  - Negative during the 4-beat pre-song countdown (-leadInSec .. 0)
+   *  - Locked to Creo's MP3 playback from 0.000s onward!
+   */
   public getSongTime(): number {
     if (!this.ctx || !this.isPlaying) return 0;
-    if (this.isPaused) return this.pauseOffsetSec;
-    return this.ctx.currentTime - this.songStartCtxTime;
+    if (this.isPaused) return this.pauseSongTime;
+
+    const nowCtx = this.ctx.currentTime;
+
+    if (!this.mp3Started) {
+      const countdownTime = nowCtx - this.leadInStartCtxTime - this.leadInSec;
+      if (countdownTime >= 0 && this.musicEl) {
+        this.mp3Started = true;
+        this.musicEl.muted = false;
+        this.musicEl.currentTime = 0;
+        void this.musicEl.play();
+        this.clockAnchorCtxTime = nowCtx;
+        this.clockAnchorSongTime = 0;
+        return 0;
+      }
+      return countdownTime;
+    }
+
+    const predicted = this.clockAnchorSongTime + (nowCtx - this.clockAnchorCtxTime);
+
+    if (this.musicEl && !this.musicEl.paused && this.musicEl.readyState >= 2) {
+      const actualMp3Time = this.loopTimeOffset + this.musicEl.currentTime;
+      const drift = actualMp3Time - predicted;
+      if (Math.abs(drift) > 0.085) {
+        // Snap if tab hiccuped >85ms
+        this.clockAnchorCtxTime = nowCtx;
+        this.clockAnchorSongTime = actualMp3Time;
+        return actualMp3Time;
+      } else if (Math.abs(drift) > 0.012) {
+        // Gently nudge PLL anchor toward MP3 clock with zero visual jump
+        const nudged = predicted + drift * 0.12;
+        this.clockAnchorCtxTime = nowCtx;
+        this.clockAnchorSongTime = nudged;
+        return nudged;
+      }
+    }
+
+    return predicted;
   }
 
-  public setBpm(newBpm: number): void {
-    this.bpm = newBpm;
+  public isTrackEnded(): boolean {
+    if (!this.isPlaying || this.endlessMode || !this.mp3Started || !this.musicEl || !this.currentTrack) {
+      return false;
+    }
+    return this.musicEl.ended || this.getSongTime() >= this.currentTrack.durationSec - 0.15;
   }
 
+  /**
+   * Real-time sub-bass kick pulse extracted directly from Creo's MP3 via WebAudio AnalyserNode!
+   */
   public getKickPulse(): number {
     if (!this.ctx || !this.isPlaying || this.isPaused) return 0;
-    const age = this.ctx.currentTime - this.lastKickTime;
-    if (age < 0 || age > 0.24) return 0;
-    return Math.pow(1 - age / 0.24, 2.2);
+
+    if (!this.mp3Started && this.currentTrack) {
+      // Gentle countdown beat pulse before MP3 kicks in
+      const beatDur = 60 / this.currentTrack.bpm;
+      const t = this.getSongTime() + this.leadInSec;
+      const frac = ((t % beatDur) + beatDur) % beatDur;
+      return Math.pow(Math.max(0, 1 - frac / 0.2), 2.2) * 0.65;
+    }
+
+    if (!this.analyser || !this.freqBins) return 0;
+    this.analyser.getByteFrequencyData(this.freqBins);
+
+    // Bins 1..4 (~43 Hz .. 215 Hz at 44.1kHz / 256 FFT) capture Creo's punchy kick & bass!
+    const lowSum =
+      (this.freqBins[1] + this.freqBins[2] * 1.2 + this.freqBins[3] + this.freqBins[4] * 0.6) /
+      3.8;
+    const normalized = Math.max(0, Math.min(1, (lowSum - 135) / 105));
+    const shaped = Math.pow(normalized, 1.8);
+    this.smoothedBassPulse = Math.max(shaped, this.smoothedBassPulse * 0.86);
+    return this.smoothedBassPulse;
   }
 
   /**
-   * Lookahead scheduler for sample-accurate procedural funk drums, bass, and chords.
+   * Crisp, unpitched percussive rhythm hit-tick so catching bars feels super tactile
+   * without clashing harmonically against Creo's music!
    */
-  public updateBackingSchedule(maxSongTimeSec?: number): void {
-    if (!this.isPlaying || this.isPaused || !this.ctx || !this.masterGain) return;
+  public playPlayerHit(isSick: boolean): void {
+    const ctx = this.ensureContext();
+    if (!this.masterGain || !this.noiseBuffer) return;
+    const now = ctx.currentTime;
 
-    const now = this.ctx.currentTime;
-    const songNow = now - this.songStartCtxTime;
-    const lookaheadSec = 0.14;
-    const secPerBeat = 60 / this.bpm;
-    const secPer16th = secPerBeat / 4;
-
-    while (true) {
-      const stepSongTime = this.leadInSec + this.nextScheduledStep * secPer16th;
-      if (maxSongTimeSec !== undefined && stepSongTime > maxSongTimeSec) break;
-      if (stepSongTime > songNow + lookaheadSec) break;
-
-      const schedCtxTime = this.songStartCtxTime + stepSongTime;
-      if (schedCtxTime >= now - 0.03) {
-        this.scheduleGrooveStep(this.nextScheduledStep, schedCtxTime, secPer16th);
-      }
-      this.nextScheduledStep++;
-    }
-  }
-
-  private scheduleGrooveStep(stepIndex: number, when: number, secPer16th: number): void {
-    const stepInBar = stepIndex % 16;
-    const measureIdx = Math.floor(stepIndex / 16);
-    const bassRoot = BASS_ROOTS[measureIdx % BASS_ROOTS.length];
-
-    // Funky breakbeat kick: 1, &-of-2 (step 6), 3 (step 8), occasional pickup (step 14)
-    if (stepInBar === 0 || stepInBar === 6 || stepInBar === 8 || (measureIdx % 2 === 1 && stepInBar === 14)) {
-      this.scheduleKick(when);
-      this.lastKickTime = when;
-    }
-
-    // Crisp snare + clap on beats 2 & 4 (steps 4 & 12)
-    if (stepInBar === 4 || stepInBar === 12) {
-      this.scheduleSnare(when);
-    }
-
-    // Groovy hi-hats
-    if (stepInBar % 2 === 0) {
-      this.scheduleHat(when, stepInBar === 14);
-    } else if (stepInBar === 7 || stepInBar === 15) {
-      this.scheduleHat(when, false, 0.035);
-    }
-
-    // Octave slap-synth bassline
-    const bassPattern: Record<number, number> = {
-      0: 0,
-      3: 12,
-      6: 0,
-      8: 0,
-      10: 7,
-      12: 12,
-      14: 10,
-    };
-    if (stepInBar in bassPattern) {
-      const semi = bassPattern[stepInBar];
-      this.scheduleBass(when, midiToFreq(bassRoot + semi), secPer16th * 1.7);
-    }
-
-    // Warm neon synth chord stab on beat 1 and &-of-2
-    if (stepInBar === 0 || stepInBar === 6) {
-      this.scheduleChordStab(when, bassRoot + 24, secPer16th * 2.5);
-    }
-  }
-
-  private scheduleKick(when: number): void {
-    if (!this.ctx || !this.masterGain) return;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(148, when);
-    osc.frequency.exponentialRampToValueAtTime(42, when + 0.09);
-
-    gain.gain.setValueAtTime(0.58, when);
-    gain.gain.exponentialRampToValueAtTime(0.001, when + 0.18);
-
-    osc.connect(gain);
-    gain.connect(this.masterGain);
-    osc.start(when);
-    osc.stop(when + 0.19);
-  }
-
-  private scheduleSnare(when: number): void {
-    if (!this.ctx || !this.masterGain || !this.noiseBuffer) return;
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = this.noiseBuffer;
-
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.setValueAtTime(1100, when);
-
-    const nGain = this.ctx.createGain();
-    nGain.gain.setValueAtTime(0.26, when);
-    nGain.gain.exponentialRampToValueAtTime(0.001, when + 0.13);
-
-    noise.connect(filter);
-    filter.connect(nGain);
-    nGain.connect(this.masterGain);
-    noise.start(when);
-    noise.stop(when + 0.14);
-
-    // Body pop
-    const osc = this.ctx.createOscillator();
-    const oGain = this.ctx.createGain();
+    // Clean woody/crystalline rhythm click
+    const osc = ctx.createOscillator();
     osc.type = 'triangle';
-    osc.frequency.setValueAtTime(210, when);
-    osc.frequency.exponentialRampToValueAtTime(110, when + 0.06);
-    oGain.gain.setValueAtTime(0.22, when);
-    oGain.gain.exponentialRampToValueAtTime(0.001, when + 0.08);
+    osc.frequency.setValueAtTime(isSick ? 1150 : 920, now);
+    osc.frequency.exponentialRampToValueAtTime(260, now + 0.032);
+
+    const oGain = ctx.createGain();
+    oGain.gain.setValueAtTime(isSick ? 0.16 : 0.12, now);
+    oGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
+
     osc.connect(oGain);
     oGain.connect(this.masterGain);
-    osc.start(when);
-    osc.stop(when + 0.09);
-  }
+    osc.start(now);
+    osc.stop(now + 0.042);
 
-  private scheduleHat(when: number, open: boolean, vol = 0.075): void {
-    if (!this.ctx || !this.masterGain || !this.noiseBuffer) return;
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.noiseBuffer;
-
-    const hp = this.ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.setValueAtTime(6800, when);
-
-    const gain = this.ctx.createGain();
-    const dur = open ? 0.14 : 0.042;
-    gain.gain.setValueAtTime(open ? vol * 1.35 : vol, when);
-    gain.gain.exponentialRampToValueAtTime(0.001, when + dur);
-
-    src.connect(hp);
-    hp.connect(gain);
-    gain.connect(this.masterGain);
-    src.start(when);
-    src.stop(when + dur + 0.01);
-  }
-
-  private scheduleBass(when: number, freq: number, dur: number): void {
-    if (!this.ctx || !this.masterGain) return;
-    const osc = this.ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(freq, when);
-
-    const lp = this.ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.Q.value = 4.5;
-    lp.frequency.setValueAtTime(freq * 5.2, when);
-    lp.frequency.exponentialRampToValueAtTime(freq * 1.6, when + dur);
-
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.18, when);
-    gain.gain.exponentialRampToValueAtTime(0.001, when + dur);
-
-    osc.connect(lp);
-    lp.connect(gain);
-    gain.connect(this.masterGain);
-    osc.start(when);
-    osc.stop(when + dur + 0.01);
-  }
-
-  private scheduleChordStab(when: number, rootMidi: number, dur: number): void {
-    if (!this.ctx || !this.masterGain) return;
-    const intervals = [0, 3, 7, 10];
-    for (const semi of intervals) {
-      const osc = this.ctx.createOscillator();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(midiToFreq(rootMidi + semi), when);
-
-      const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.045, when);
-      gain.gain.exponentialRampToValueAtTime(0.001, when + dur);
-
-      osc.connect(gain);
-      gain.connect(this.masterGain);
-      osc.start(when);
-      osc.stop(when + dur + 0.01);
-    }
-  }
-
-  /**
-   * FNF-style Boyfriend vocal/lead synth hit when the player catches a bar!
-   */
-  public playPlayerHit(midiPitch: number, lane: number, isSick: boolean): void {
-    const ctx = this.ensureContext();
-    if (!this.masterGain) return;
-    const now = ctx.currentTime;
-    const freq = midiToFreq(midiPitch);
-
-    const osc = ctx.createOscillator();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(freq * 0.985, now);
-    osc.frequency.exponentialRampToValueAtTime(freq, now + 0.022);
-
-    // Formant vowel filter ("bep / bap / boop / skdoo" per lane!)
-    const formants = [920, 1380, 1780, 1140];
+    // Subtle crisp transient snap
+    const snap = ctx.createBufferSource();
+    snap.buffer = this.noiseBuffer;
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.Q.value = 2.4;
-    bp.frequency.setValueAtTime(formants[lane % 4], now);
-    bp.frequency.exponentialRampToValueAtTime(formants[lane % 4] * 1.25, now + 0.12);
+    bp.frequency.setValueAtTime(3800, now);
+    bp.Q.value = 1.8;
 
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(isSick ? 0.24 : 0.18, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(isSick ? 0.1 : 0.06, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
 
-    osc.connect(bp);
-    bp.connect(gain);
-    gain.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.18);
-
-    // Bright upper shimmer bell
-    const sub = ctx.createOscillator();
-    const sGain = ctx.createGain();
-    sub.type = 'triangle';
-    sub.frequency.setValueAtTime(freq * 2, now);
-    sGain.gain.setValueAtTime(isSick ? 0.09 : 0.05, now);
-    sGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
-    sub.connect(sGain);
-    sGain.connect(this.masterGain);
-    sub.start(now);
-    sub.stop(now + 0.12);
-  }
-
-  /**
-   * Rival synth voice on the left stage speaker.
-   */
-  public playRivalNote(midiPitch: number, lane: number, dur = 0.16): void {
-    if (!this.ctx || !this.masterGain || this.isPaused) return;
-    const now = this.ctx.currentTime;
-    const freq = midiToFreq(midiPitch);
-
-    const osc = this.ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(freq, now);
-
-    const lp = this.ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.Q.value = 3.2;
-    lp.frequency.setValueAtTime(750 + lane * 260, now);
-
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.09, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + Math.max(0.1, dur));
-
-    osc.connect(lp);
-    lp.connect(gain);
-    gain.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + Math.max(0.11, dur + 0.01));
+    snap.connect(bp);
+    bp.connect(nGain);
+    nGain.connect(this.masterGain);
+    snap.start(now);
+    snap.stop(now + 0.03);
   }
 
   public playMissSound(): void {
@@ -381,17 +328,17 @@ export class FunkAudioEngine {
 
     const osc = ctx.createOscillator();
     osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(165, now);
-    osc.frequency.linearRampToValueAtTime(78, now + 0.14);
+    osc.frequency.setValueAtTime(160, now);
+    osc.frequency.linearRampToValueAtTime(75, now + 0.13);
 
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.2, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    gain.gain.setValueAtTime(0.16, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
 
     osc.connect(gain);
     gain.connect(this.masterGain);
     osc.start(now);
-    osc.stop(now + 0.16);
+    osc.stop(now + 0.15);
   }
 
   public playSpamJamSound(): void {
@@ -399,20 +346,20 @@ export class FunkAudioEngine {
     if (!this.masterGain) return;
     const now = ctx.currentTime;
 
-    for (const detune of [-18, 19]) {
+    for (const detune of [-16, 17]) {
       const osc = ctx.createOscillator();
       osc.type = 'square';
-      osc.frequency.setValueAtTime(135 + detune, now);
-      osc.frequency.linearRampToValueAtTime(62, now + 0.24);
+      osc.frequency.setValueAtTime(132 + detune, now);
+      osc.frequency.linearRampToValueAtTime(60, now + 0.22);
 
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.16, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      gain.gain.setValueAtTime(0.13, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.23);
 
       osc.connect(gain);
       gain.connect(this.masterGain);
       osc.start(now);
-      osc.stop(now + 0.26);
+      osc.stop(now + 0.24);
     }
   }
 
@@ -423,20 +370,20 @@ export class FunkAudioEngine {
     const freq = step === 0 ? 880 : step === 1 ? 587.33 : step === 2 ? 523.25 : 440;
 
     const osc = ctx.createOscillator();
-    osc.type = step === 0 ? 'square' : 'triangle';
+    osc.type = 'triangle';
     osc.frequency.setValueAtTime(freq, now);
     if (step === 0) {
       osc.frequency.exponentialRampToValueAtTime(1174.66, now + 0.08);
     }
 
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(step === 0 ? 0.24 : 0.16, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + (step === 0 ? 0.28 : 0.16));
+    gain.gain.setValueAtTime(step === 0 ? 0.2 : 0.14, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + (step === 0 ? 0.24 : 0.14));
 
     osc.connect(gain);
     gain.connect(this.masterGain);
     osc.start(now);
-    osc.stop(now + 0.3);
+    osc.stop(now + 0.26);
   }
 
   public playUiSelect(): void {

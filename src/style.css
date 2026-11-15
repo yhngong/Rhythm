@@ -713,3 +713,57 @@ body {
     font-size: 28px;
   }
 }
+
+
+/* ============================================================================
+   MUSIC BY CREO CREDIT BADGE & LINKS
+   ============================================================================ */
+
+.creo-credits-bar {
+  margin-top: 18px;
+  background: #232833;
+  border: 2px solid #181c24;
+  border-radius: 18px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-soft);
+}
+
+.creo-pill {
+  font-family: 'Fredoka', sans-serif;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(180deg, #63f0ff, #0593de);
+  box-shadow: 0 3px 0 #045c96, inset 0 0 0 2px rgba(255, 255, 255, 0.25);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.creo-tracks strong {
+  color: #ffffff;
+}
+
+.creo-links a,
+.track-credit-sub a {
+  color: #63f0ff;
+  text-decoration: none;
+  font-weight: 900;
+}
+
+.creo-links a:hover,
+.track-credit-sub a:hover {
+  text-decoration: underline;
+  color: #9ef6ff;
+}
+
+.track-credit-sub {
+  margin-bottom: 12px;
+}

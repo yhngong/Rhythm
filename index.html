@@ -112,12 +112,26 @@
         <!-- 4 Glossy 3D Difficulty Cards -->
         <div id="difficulty-grid" class="difficulty-grid"></div>
 
-        <!-- Signature ui1.png Action Trio: [Gear Mode Toggle] [   Play!   ] -->
+        <!-- Signature ui1.png Action Button -->
         <div class="ui1-action-row">
           <button id="btn-start" class="jelly-btn jelly-wide theme-green">
             <span class="shine-dots"></span>
             <span class="btn-label">Play!</span>
           </button>
+        </div>
+
+        <!-- Prominent Music Credit to Creo -->
+        <div class="creo-credits-bar">
+          <span class="creo-pill">♪ Music by Creo</span>
+          <span class="creo-tracks">
+            Randomly plays <strong>Sphere</strong> &bull; <strong>Lost</strong> &bull;
+            <strong>Dimension</strong> &bull; <strong>Epilogue</strong>
+          </span>
+          <span class="creo-links">
+            <a href="https://creo-music.com" target="_blank" rel="noopener noreferrer">creo-music.com</a>
+            &middot;
+            <a href="https://creo.newgrounds.com" target="_blank" rel="noopener noreferrer">Newgrounds</a>
+          </span>
         </div>
       </div>
     </div>
@@ -126,7 +140,7 @@
     <div id="pause-screen" class="overlay-screen hidden">
       <div class="modal-shell">
         <h2 class="bubble-heading">Paused</h2>
-        <p class="modal-sub">Ready to jump back into the groove?</p>
+        <p id="pause-track-credit" class="modal-sub">♪ Song: Creo — Dimension</p>
 
         <!-- Exact ui1.png 3-button layout: [Circle Gear = Difficulty] [Wide Green = Resume] [Squircle X = Menu] -->
         <div class="ui1-trio-bar">
@@ -177,6 +191,7 @@
       <div class="modal-shell results-shell">
         <div id="res-badge" class="pill-tag">STAGE COMPLETE</div>
         <h2 id="res-title" class="bubble-heading">Track Cleared!</h2>
+        <p id="res-track-credit" class="modal-sub track-credit-sub">♪ Music by Creo</p>
 
         <div class="grade-showcase">
           <div id="res-grade" class="grade-orb theme-green">

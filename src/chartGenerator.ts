@@ -1,12 +1,5 @@
+import { CreoTrack, getTrackEnergyAt } from './songs';
 import { DifficultyConfig, NoteBar, RivalNote } from './types';
-
-// Funky C-minor pentatonic / Dorian scale intervals for melodic FNF-style synth hits
-const PHRASE_SCALES: number[][] = [
-  [60, 63, 65, 67, 70, 72, 75, 77], // Cm7
-  [56, 60, 63, 67, 68, 72, 75, 79], // Abmaj7
-  [53, 56, 60, 63, 65, 68, 72, 75], // Fm7
-  [55, 59, 62, 65, 67, 71, 74, 75], // G7alt
-];
 
 export interface GeneratedSection {
   playerNotes: NoteBar[];
@@ -15,82 +8,102 @@ export interface GeneratedSection {
   endMeasure: number;
 }
 
+const MIN_SAME_LANE_SEC: Record<DifficultyConfig['id'], number> = {
+  easy: 0.24,
+  normal: 0.19,
+  hard: 0.155,
+  insane: 0.13,
+};
+
 /**
- * Generates randomized, musically beat-quantized falling bar patterns
- * with strict ergonomic lane-occupancy rules (no overlapping hold tails or unfair jacks).
+ * Generates randomized, beat-locked falling bar patterns synced to a real Creo MP3 track's
+ * exact BPM, beat phase offset, and RMS energy envelope!
  */
-export function generateChartSection(
+export function generateChartForTrack(
   config: DifficultyConfig,
+  track: CreoTrack,
   startMeasure: number,
   measureCount: number,
-  leadInSec: number,
-  startingNoteId = 1
+  startingNoteId = 1,
+  loopOffsetSec = 0
 ): GeneratedSection {
-  const secPerBeat = 60 / config.bpm;
-  const stepsPerBeat = config.stepSubdivision; // 2 (8ths) or 4 (16ths)
+  const secPerBeat = 60 / track.bpm;
+  // On 160 BPM tracks (like Epilogue), cap 16th flood slightly on Normal so difficulty stays consistent across BPMs
+  const stepsPerBeat = config.stepSubdivision;
   const stepsPerMeasure = 4 * stepsPerBeat;
   const secPerStep = secPerBeat / stepsPerBeat;
+  const bpmTempoScale = Math.min(1.15, Math.max(0.78, 125 / track.bpm));
 
   const playerNotes: NoteBar[] = [];
   const rivalNotes: RivalNote[] = [];
   let nextId = startingNoteId;
 
-  // Track up to which global step each lane is occupied (prevents hold collisions & inhumane jacks)
-  const laneFreeAtStep = [0, 0, 0, 0];
+  const laneFreeAtTime = [-10, -10, -10, -10];
+  const minJackGapSec = MIN_SAME_LANE_SEC[config.id];
   let lastLane: 0 | 1 | 2 | 3 = 1;
 
   for (let m = 0; m < measureCount; m++) {
     const measureIdx = startMeasure + m;
-    const scale = PHRASE_SCALES[measureIdx % PHRASE_SCALES.length];
-    const isChorus = measureIdx % 8 >= 4;
-    const densityBoost = isChorus ? 1.15 : 1.0;
-
-    // Pick a randomized musical motif style for this measure
     const motifRoll = Math.random();
     const useBurstMotif = motifRoll < config.burstChance;
     const stairDir = Math.random() < 0.5 ? 1 : -1;
     let stairCursor = Math.floor(Math.random() * 4);
 
-    // Pre-pick a trill pair in case a trill burst occurs
-    const trillA = (Math.floor(Math.random() * 2) as 0 | 1); // left hand D or F
-    const trillB = (2 + Math.floor(Math.random() * 2)) as 2 | 3; // right hand J or K
+    const trillA = Math.floor(Math.random() * 2) as 0 | 1;
+    const trillB = (2 + Math.floor(Math.random() * 2)) as 2 | 3;
 
     for (let s = 0; s < stepsPerMeasure; s++) {
       const globalStep = measureIdx * stepsPerMeasure + s;
-      const stepTime = leadInSec + globalStep * secPerStep;
+      const stepTime = loopOffsetSec + track.beatOffsetSec + globalStep * secPerStep;
+      const localTrackTime = (stepTime - loopOffsetSec) % track.durationSec;
+
+      // Respect quiet fade-in / fade-out boundaries in Stage Battle mode
+      if (loopOffsetSec === 0) {
+        if (stepTime < track.firstNoteSec || stepTime > track.lastNoteSec) {
+          continue;
+        }
+      }
+
+      // Modulate note density by Creo's actual audio energy at this moment!
+      const rawEnergy = getTrackEnergyAt(track, localTrackTime);
+      if (rawEnergy < 0.05) continue;
+      // Map energy (0.10..0.54) -> multiplier (0.58..1.25)
+      const energyFactor = Math.min(1.26, Math.max(0.55, 0.42 + rawEnergy * 1.65));
 
       const isQuarter = s % stepsPerBeat === 0;
       const isEighth = stepsPerBeat === 2 ? true : s % 2 === 0;
       const isDownbeat = s === 0 || s === 2 * stepsPerBeat;
 
-      // Determine whether to spawn a note on this subdivision step
       let spawnProb = 0;
       if (isDownbeat) {
-        spawnProb = Math.min(0.94, config.baseDensity * 1.45 * densityBoost);
+        spawnProb = Math.min(0.95, config.baseDensity * 1.42 * energyFactor);
       } else if (isQuarter) {
-        spawnProb = Math.min(0.88, config.baseDensity * 1.2 * densityBoost);
+        spawnProb = Math.min(0.88, config.baseDensity * 1.18 * energyFactor * bpmTempoScale);
       } else if (isEighth) {
-        spawnProb = config.baseDensity * 0.88 * densityBoost;
+        const easyDamp = config.id === 'easy' ? 0.52 : 1.0;
+        spawnProb = config.baseDensity * 0.85 * energyFactor * bpmTempoScale * easyDamp;
       } else {
-        // 16th off-beat subdivision
-        spawnProb = useBurstMotif ? config.baseDensity * 0.72 * densityBoost : config.baseDensity * 0.16;
+        // 16th subdivisions trigger mainly during energetic drops/choruses!
+        const dropBoost = rawEnergy >= 0.4 ? 1.1 : 0.45;
+        spawnProb =
+          (useBurstMotif ? config.baseDensity * 0.68 : config.baseDensity * 0.14) *
+          dropBoost *
+          bpmTempoScale;
       }
 
-      // Leave a tiny breath at the very end of every 8-measure phrase
       if (measureIdx % 8 === 7 && s >= stepsPerMeasure - Math.max(1, stepsPerBeat - 1)) {
-        spawnProb *= 0.2;
+        spawnProb *= 0.25;
       }
 
       if (Math.random() < spawnProb) {
         const availableLanes = ([0, 1, 2, 3] as const).filter(
-          (l) => globalStep >= laneFreeAtStep[l]
+          (l) => stepTime >= laneFreeAtTime[l]
         );
 
         if (availableLanes.length > 0) {
           let chosenLane: 0 | 1 | 2 | 3;
 
           if (useBurstMotif && !isQuarter) {
-            // Structured stair or hand-alternating trill during fast bursts!
             if (motifRoll < config.burstChance * 0.55) {
               stairCursor = (stairCursor + stairDir + 4) % 4;
               const candidate = stairCursor as 0 | 1 | 2 | 3;
@@ -107,29 +120,24 @@ export function generateChartSection(
             chosenLane = pickErgonomicLane(availableLanes, lastLane);
           }
 
-          // Decide if this bar is a Hold Sustain Bar (mostly on strong beats)
           let durationSteps = 0;
           if (
             (isQuarter || isEighth) &&
             s <= stepsPerMeasure - stepsPerBeat &&
             Math.random() < config.holdChance
           ) {
-            const holdBeats = Math.random() < 0.65 ? 1 : 1.5;
+            const holdBeats = Math.random() < 0.68 ? 1 : 1.5;
             durationSteps = Math.max(2, Math.round(holdBeats * stepsPerBeat));
           }
 
           const durationSec = durationSteps > 0 ? durationSteps * secPerStep : 0;
-          const pitchIdx = Math.min(
-            scale.length - 1,
-            chosenLane * 2 + (Math.random() < 0.45 ? 1 : 0)
-          );
 
           playerNotes.push({
             id: nextId++,
             lane: chosenLane,
             time: stepTime,
             duration: durationSec,
-            midiPitch: scale[pitchIdx],
+            midiPitch: 60 + chosenLane * 3,
             hit: false,
             missed: false,
             holding: false,
@@ -138,32 +146,30 @@ export function generateChartSection(
             lastHoldTickTime: stepTime,
           });
 
-          laneFreeAtStep[chosenLane] =
-            globalStep + Math.max(config.minSameLaneSteps, durationSteps + 2);
+          laneFreeAtTime[chosenLane] =
+            stepTime + durationSec + Math.max(minJackGapSec, secPerStep * 1.6);
           lastLane = chosenLane;
 
-          // Optional Double-Bar Chord Jump on strong quarter/eighth beats
+          // Double-Bar Chord Jump on energetic beats
           if (
             durationSteps === 0 &&
-            (isDownbeat || isQuarter) &&
-            Math.random() < config.chordChance
+            (isDownbeat || (isQuarter && rawEnergy > 0.36)) &&
+            Math.random() < config.chordChance * energyFactor
           ) {
             const chordCandidates = availableLanes.filter((l) => l !== chosenLane);
             if (chordCandidates.length > 0) {
-              // Prefer opposite hand for comfortable DF + JK chord jumps
               const oppositeHand = chordCandidates.filter((l) =>
                 chosenLane < 2 ? l >= 2 : l < 2
               );
               const pool = oppositeHand.length > 0 ? oppositeHand : chordCandidates;
               const secondLane = pool[Math.floor(Math.random() * pool.length)];
-              const pitchIdx2 = Math.min(scale.length - 1, secondLane * 2 + 1);
 
               playerNotes.push({
                 id: nextId++,
                 lane: secondLane,
                 time: stepTime,
                 duration: 0,
-                midiPitch: scale[pitchIdx2],
+                midiPitch: 67 + secondLane * 2,
                 hit: false,
                 missed: false,
                 holding: false,
@@ -172,21 +178,21 @@ export function generateChartSection(
                 lastHoldTickTime: stepTime,
               });
 
-              laneFreeAtStep[secondLane] = globalStep + config.minSameLaneSteps;
+              laneFreeAtTime[secondLane] =
+                stepTime + Math.max(minJackGapSec, secPerStep * 1.6);
             }
           }
         }
       }
 
-      // Generate synchronized Rival harmony/counter-rhythm notes for FNF stage battle flair!
-      if ((isQuarter || (isEighth && Math.random() < 0.45)) && Math.random() < 0.55) {
+      // Rival stage animations synced to Creo's beat & energy!
+      if ((isQuarter || (isEighth && rawEnergy > 0.38)) && Math.random() < 0.55) {
         const rLane = Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3;
-        const rPitch = scale[(rLane * 2) % scale.length] - 12; // Rival sings a warm octave lower!
         rivalNotes.push({
           lane: rLane,
           time: stepTime,
-          duration: isDownbeat && Math.random() < 0.25 ? secPerBeat * 0.75 : secPerBeat * 0.3,
-          midiPitch: rPitch,
+          duration: isDownbeat ? secPerBeat * 0.65 : secPerBeat * 0.3,
+          midiPitch: 48,
           triggered: false,
         });
       }
@@ -208,7 +214,6 @@ function pickErgonomicLane(
   available: readonly (0 | 1 | 2 | 3)[],
   lastLane: 0 | 1 | 2 | 3
 ): 0 | 1 | 2 | 3 {
-  // Strongly prefer switching lanes/hands so patterns flow smoothly across D-F-J-K
   const nonRepeat = available.filter((l) => l !== lastLane);
   const pool = nonRepeat.length > 0 ? nonRepeat : available;
   return pool[Math.floor(Math.random() * pool.length)];
