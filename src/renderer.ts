@@ -88,6 +88,7 @@ export class GameRenderer {
   }
 
   public renderMenuBackground(width: number, height: number, timeSec: number): void {
+    if (width <= 0 || height <= 0) return;
     const ctx = this.ctx;
 
     // Exact matte dark slate-charcoal backdrop matching ui1.png (#252A34 -> #1D2129)
@@ -116,63 +117,78 @@ export class GameRenderer {
 
   public renderGameplay(state: RenderFrameState): void {
     const { width, height, songTime, difficulty, kickPulse } = state;
+    if (width <= 0 || height <= 0) return;
     const ctx = this.ctx;
     const { laneWidth, highwayWidth, highwayX, receptorY } = this.getHighwayGeometry(width, height);
 
     ctx.save();
-    const zoom = 1 + kickPulse * 0.01;
-    ctx.translate(width / 2, height / 2);
-    ctx.scale(zoom, zoom);
-    ctx.translate(-width / 2, -height / 2);
+    try {
+      const zoom = 1 + kickPulse * 0.01;
+      ctx.translate(width / 2, height / 2);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-width / 2, -height / 2);
 
-    // 1. Matte Slate Stage Backdrop (ui1.png palette)
-    this.drawStageBackdrop(width, height, songTime, kickPulse);
+      // 1. Matte Slate Stage Backdrop (ui1.png palette)
+      this.drawStageBackdrop(width, height, songTime, kickPulse);
 
-    // 2. Flanking Glossy Cartoon Speakers & FNF Stage Characters
-    if (width >= 820) {
-      const leftStageX = highwayX * 0.5;
-      const rightStageX = highwayX + highwayWidth + (width - (highwayX + highwayWidth)) * 0.5;
-      const stageFloorY = height - 160;
+      // 2. Flanking Glossy Cartoon Speakers & FNF Stage Characters
+      if (width >= 820) {
+        const leftStageX = highwayX * 0.5;
+        const rightStageX = highwayX + highwayWidth + (width - (highwayX + highwayWidth)) * 0.5;
+        const stageFloorY = height - 160;
 
-      this.drawSpeakerStack(leftStageX, stageFloorY - 96, kickPulse, LANE_COLORS[3]);
-      this.drawSpeakerStack(rightStageX, stageFloorY - 96, kickPulse, LANE_COLORS[0]);
+        this.drawSpeakerStack(leftStageX, stageFloorY - 96, kickPulse, LANE_COLORS[3]);
+        this.drawSpeakerStack(rightStageX, stageFloorY - 96, kickPulse, LANE_COLORS[0]);
 
-      this.drawRivalCharacter(leftStageX, stageFloorY, songTime, state.currentBpm, state.rivalPose);
-      this.drawPlayerCharacter(rightStageX, stageFloorY, songTime, state.currentBpm, state.playerPose);
+        this.drawRivalCharacter(
+          leftStageX,
+          stageFloorY,
+          songTime,
+          state.currentBpm,
+          state.rivalPose
+        );
+        this.drawPlayerCharacter(
+          rightStageX,
+          stageFloorY,
+          songTime,
+          state.currentBpm,
+          state.playerPose
+        );
+      }
+
+      // 3. Rounded 3D Slate Highway Track
+      this.drawHighwayTrack(
+        highwayX,
+        highwayWidth,
+        laneWidth,
+        height,
+        receptorY,
+        songTime,
+        state.currentBpm,
+        difficulty.scrollSpeed,
+        state.lanes
+      );
+
+      // 4. Glossy 3D Candy Falling Bars & Sustain Ribbons
+      this.drawFallingNoteBars(
+        state.notes,
+        highwayX,
+        laneWidth,
+        height,
+        receptorY,
+        songTime,
+        difficulty.scrollSpeed
+      );
+
+      // 5. Glossy 3D Catcher Bars + Squircle D F J K Keycap Buttons
+      this.drawReceptorBars(highwayX, laneWidth, receptorY, state.lanes);
+
+      // 6. Hit Particles & Chunky Outlined Bubble Popups
+      this.drawParticles(state.particles);
+      this.drawPopups(state.popups);
+    } finally {
+      ctx.restore();
     }
-
-    // 3. Rounded 3D Slate Highway Track
-    this.drawHighwayTrack(
-      highwayX,
-      highwayWidth,
-      laneWidth,
-      height,
-      receptorY,
-      songTime,
-      state.currentBpm,
-      difficulty.scrollSpeed,
-      state.lanes
-    );
-
-    // 4. Glossy 3D Candy Falling Bars & Sustain Ribbons
-    this.drawFallingNoteBars(
-      state.notes,
-      highwayX,
-      laneWidth,
-      height,
-      receptorY,
-      songTime,
-      difficulty.scrollSpeed
-    );
-
-    // 5. Glossy 3D Catcher Bars + Squircle D F J K Keycap Buttons
-    this.drawReceptorBars(highwayX, laneWidth, receptorY, state.lanes);
-
-    // 6. Hit Particles & Chunky Outlined Bubble Popups
-    this.drawParticles(state.particles);
-    this.drawPopups(state.popups);
-
-    ctx.restore();
 
     // 7. Glossy Capsule HUD, Anti-Spam Meter & FNF Tug-of-War Health Bar
     this.drawHud(state, highwayX, highwayWidth);
@@ -200,8 +216,9 @@ export class GameRenderer {
     lipHeight = 5,
     showShineDots = true
   ): void {
+    if (w < 1 || h < 1 || !Number.isFinite(x + y + w + h + radius)) return;
     const ctx = this.ctx;
-    const r = Math.min(radius, w / 2, h / 2);
+    const r = Math.max(0, Math.min(radius, w / 2, h / 2));
 
     ctx.save();
 
@@ -225,14 +242,13 @@ export class GameRenderer {
     this.roundRectPath(x, y, w, h, r);
     ctx.fill();
 
-    // Continuous translucent inner glossy bevel ring matching ui1.png!
-    ctx.save();
-    ctx.clip();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.34)';
-    ctx.lineWidth = 4;
-    this.roundRectPath(x + 1, y + 1, w - 2, h - 2, Math.max(2, r - 1));
-    ctx.stroke();
-    ctx.restore();
+    // Fast clip-free translucent inner glossy bevel ring matching ui1.png!
+    if (w > 6 && h > 6) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.32)';
+      ctx.lineWidth = 2.4;
+      this.roundRectPath(x + 1.5, y + 1.5, w - 3, h - 3, Math.max(0, r - 1.5));
+      ctx.stroke();
+    }
 
     // Twin angled white specular droplets in top-right corner (signature of ui1.png!)
     if (showShineDots && w >= 28 && h >= 16) {
@@ -568,8 +584,10 @@ export class GameRenderer {
     const padX = 8;
     const barW = laneWidth - padX * 2;
     const barH = 24;
+    const maxFutureSec = (receptorY + 60) / scrollSpeed;
 
     for (const note of notes) {
+      if (note.time - songTime > maxFutureSec) break;
       if (note.hit && (note.duration === 0 || note.holdCompleted)) continue;
 
       const headY = receptorY - (note.time - songTime) * scrollSpeed;
@@ -587,12 +605,13 @@ export class GameRenderer {
       if (note.duration > 0) {
         const clampBottomY = note.holding ? receptorY : Math.min(headY, height);
         const topY = Math.max(-25, tailY);
-        if (clampBottomY > topY) {
+        const trailH = clampBottomY - topY;
+        if (trailH >= 4) {
           const ribbonW = Math.max(22, Math.floor(barW * 0.44));
           const rx = highwayX + note.lane * laneWidth + (laneWidth - ribbonW) / 2;
           ctx.save();
           ctx.globalAlpha = note.missed || note.holdReleasedEarly ? 0.32 : 0.92;
-          this.drawJellyPill(rx, topY, ribbonW, clampBottomY - topY, 10, pal, 3, false);
+          this.drawJellyPill(rx, topY, ribbonW, trailH, 10, pal, 3, false);
           ctx.restore();
         }
       }
@@ -730,7 +749,7 @@ export class GameRenderer {
     const { width, height, stats, difficulty, mode, songTime, totalDurationSec } = state;
 
     // 1. Top Glossy Progress Pill
-    const topBarW = Math.min(440, width - 160);
+    const topBarW = Math.max(80, Math.min(440, width - 160));
     const topBarX = (width - topBarW) / 2;
     this.drawJellyPill(topBarX, 12, topBarW, 20, 10, SLATE_IDLE_PALETTE, 4, false);
 
@@ -823,7 +842,7 @@ export class GameRenderer {
     }
 
     // 4. Bottom FNF Tug-of-War Glossy Health Capsule
-    const hbWidth = Math.min(560, width - 44);
+    const hbWidth = Math.max(120, Math.min(560, width - 44));
     const hbHeight = 22;
     const hbX = (width - hbWidth) / 2;
     const hbY = height - 36;
@@ -869,16 +888,20 @@ export class GameRenderer {
     ctx.translate(width / 2, height * 0.43);
     const s = 1 + kickPulse * 0.12;
     ctx.scale(s, s);
+    const isLoading = text === 'Loading...';
     const label = text === 'FUNK!' ? 'Funk!' : text;
     const col = label === 'Funk!' ? '#72FF1D' : '#FFFFFF';
-    this.drawOutlinedText(label, 0, 0, 74, col, '#146B04', 11);
+    this.drawOutlinedText(label, 0, 0, isLoading ? 38 : 74, col, '#146B04', isLoading ? 7 : 11);
     ctx.restore();
   }
 
   private roundRectPath(x: number, y: number, w: number, h: number, r: number): void {
     const ctx = this.ctx;
-    const radius = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
+    if (w <= 0 || h <= 0 || !Number.isFinite(x + y + w + h + r)) {
+      return;
+    }
+    const radius = Math.max(0, Math.min(r, w / 2, h / 2));
     ctx.moveTo(x + radius, y);
     ctx.arcTo(x + w, y, x + w, y + h, radius);
     ctx.arcTo(x + w, y + h, x, y + h, radius);

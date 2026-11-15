@@ -38,8 +38,8 @@ const game = new RhythmGame(canvas, {
 });
 
 function resizeCanvas(): void {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  canvas.width = Math.max(320, window.innerWidth);
+  canvas.height = Math.max(320, window.innerHeight);
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
@@ -110,11 +110,13 @@ btnStart.addEventListener('click', () => {
 });
 
 btnPause.addEventListener('click', () => {
+  btnPause.blur();
   if (game.state === 'playing') game.pauseRun();
   else if (game.state === 'paused') game.resumeRun();
 });
 
 btnMute.addEventListener('click', () => {
+  btnMute.blur();
   updateMuteUi(game.audio.toggleMute());
 });
 
@@ -222,7 +224,11 @@ function populateResultsModal(cleared: boolean): void {
 renderDifficultyCards();
 
 function loop(now: number): void {
-  game.tick(now);
   requestAnimationFrame(loop);
+  try {
+    game.tick(now);
+  } catch (err) {
+    console.error('Frame tick error:', err);
+  }
 }
 requestAnimationFrame(loop);

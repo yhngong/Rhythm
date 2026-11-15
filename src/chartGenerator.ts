@@ -57,11 +57,13 @@ export function generateChartForTrack(
       const stepTime = loopOffsetSec + track.beatOffsetSec + globalStep * secPerStep;
       const localTrackTime = (stepTime - loopOffsetSec) % track.durationSec;
 
-      // Respect quiet fade-in / fade-out boundaries in Stage Battle mode
+      // Respect quiet fade-in / fade-out boundaries in Stage Battle mode, and loop seam in Endless mode
       if (loopOffsetSec === 0) {
         if (stepTime < track.firstNoteSec || stepTime > track.lastNoteSec) {
           continue;
         }
+      } else if (stepTime >= loopOffsetSec + track.durationSec - 0.35) {
+        continue;
       }
 
       // Modulate note density by Creo's actual audio energy at this moment!

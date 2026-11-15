@@ -33,13 +33,14 @@ export class RhythmGame {
   public selectedDifficulty: DifficultyId = 'normal';
   public mode: GameMode = 'stage';
   public currentTrack: CreoTrack = CREO_TRACKS[0];
+  private nextQueuedTrack: CreoTrack = pickRandomCreoTrack();
 
   private config: DifficultyConfig = DIFFICULTIES.normal;
   private currentBpm = 115;
   private leadInSec = 2.0;
   private totalDurationSec = 192;
   private generatedMeasures = 0;
-  private loopOffsetSec = 0;
+  private endlessLoopIndex = 0;
   private nextNoteId = 1;
 
   private notes: NoteBar[] = [];
@@ -73,6 +74,8 @@ export class RhythmGame {
     this.callbacks = callbacks;
     this.highScores = this.loadHighScores();
     this.bindInputListeners();
+    // Pre-fetch the first random Creo song right away so Start feels instantaneous
+    this.audio.preloadTrack(this.nextQueuedTrack);
   }
 
   private freshStats(): RunStats {
@@ -132,17 +135,22 @@ export class RhythmGame {
     diffId: DifficultyId = this.selectedDifficulty,
     mode: GameMode = this.mode
   ): void {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+
     this.selectedDifficulty = diffId;
     this.mode = mode;
     this.config = DIFFICULTIES[diffId];
 
-    // Randomly pick 1 of the 4 Creo songs every run!
-    this.currentTrack = pickRandomCreoTrack();
+    // Consume the pre-fetched random Creo track and immediately queue/preload the next random one!
+    this.currentTrack = this.nextQueuedTrack;
+    this.nextQueuedTrack = pickRandomCreoTrack();
+    this.audio.preloadTrack(this.nextQueuedTrack);
+
     this.currentBpm = this.currentTrack.bpm;
 
     const secPerBeat = 60 / this.currentBpm;
     this.leadInSec = secPerBeat * 4; // 4-beat pre-song countdown (-leadInSec .. 0)
-    this.loopOffsetSec = 0;
+    this.endlessLoopIndex = 0;
 
     this.stats = this.freshStats();
     this.popups = [];
@@ -179,16 +187,7 @@ export class RhythmGame {
 
     this.totalDurationSec = this.currentTrack.durationSec;
 
-    this.audio.startTrack(
-      this.currentTrack,
-      this.leadInSec,
-      mode === 'endless',
-      (newOffsetSec) => {
-        // When Endless loops the Creo MP3, reset measure counter for the new loop!
-        this.loopOffsetSec = newOffsetSec;
-        this.generatedMeasures = 0;
-      }
-    );
+    this.audio.startTrack(this.currentTrack, this.leadInSec, mode === 'endless');
     this.setState('playing');
   }
 
@@ -201,6 +200,7 @@ export class RhythmGame {
 
   public resumeRun(): void {
     if (this.state !== 'paused') return;
+    (document.activeElement as HTMLElement | null)?.blur?.();
     this.audio.resumeSong();
     this.setState('playing');
   }
@@ -262,6 +262,8 @@ export class RhythmGame {
 
       if (this.state !== 'playing') return;
 
+      this.audio.resumeContextIfNeeded();
+
       const laneIdx = LANE_KEYS.indexOf(key as (typeof LANE_KEYS)[number]);
       if (laneIdx !== -1) {
         e.preventDefault();
@@ -279,6 +281,12 @@ export class RhythmGame {
 
     window.addEventListener('blur', () => {
       if (this.state === 'playing') {
+        this.pauseRun();
+      }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.state === 'playing') {
         this.pauseRun();
       }
     });
@@ -483,6 +491,9 @@ export class RhythmGame {
   }
 
   private spawnBurst(x: number, y: number, color: string, count: number): void {
+    if (this.particles.length > 140) {
+      this.particles.splice(0, this.particles.length - 140);
+    }
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
       const spd = 70 + Math.random() * 210;
@@ -511,36 +522,48 @@ export class RhythmGame {
     const songTime = this.audio.getSongTime();
 
     if (this.state === 'playing') {
-      // Endless mode dynamic chart extension synced to current Creo track loop
-      if (this.mode === 'endless') {
+      // Seamless Endless mode chart extension across multi-loop Creo playback!
+      if (this.mode === 'endless' && !this.audio.isTrackLoading()) {
         const secPerMeasure = (60 / this.currentBpm) * 4;
-        const maxMeasuresInLoop = Math.floor(this.currentTrack.durationSec / secPerMeasure);
-        const generatedEndSec = this.loopOffsetSec + this.generatedMeasures * secPerMeasure;
-        if (
-          this.generatedMeasures < maxMeasuresInLoop &&
-          generatedEndSec - songTime < 15
-        ) {
-          const toGen = Math.min(8, maxMeasuresInLoop - this.generatedMeasures);
-          const next = generateChartForTrack(
-            this.config,
-            this.currentTrack,
-            this.generatedMeasures,
-            toGen,
-            this.nextNoteId,
-            this.loopOffsetSec
-          );
-          this.notes.push(...next.playerNotes);
-          this.rivalNotes.push(...next.rivalNotes);
-          this.generatedMeasures = next.endMeasure;
-          this.nextNoteId = next.nextNoteId;
-          this.notes = this.notes.filter((n) => n.time + n.duration > songTime - 2);
-          this.rivalNotes = this.rivalNotes.filter((n) => n.time > songTime - 2);
+        const maxMeasuresInLoop = Math.max(
+          1,
+          Math.floor((this.currentTrack.durationSec - 0.4) / secPerMeasure)
+        );
+        const loopOffset = this.endlessLoopIndex * this.currentTrack.durationSec;
+        const generatedEndSec = loopOffset + this.generatedMeasures * secPerMeasure;
+
+        if (generatedEndSec - songTime < 15) {
+          const remainingInLoop = maxMeasuresInLoop - this.generatedMeasures;
+          if (remainingInLoop <= 0) {
+            this.endlessLoopIndex++;
+            this.generatedMeasures = 0;
+          } else {
+            const toGen = Math.min(8, remainingInLoop);
+            const next = generateChartForTrack(
+              this.config,
+              this.currentTrack,
+              this.generatedMeasures,
+              toGen,
+              this.nextNoteId,
+              loopOffset
+            );
+            this.notes.push(...next.playerNotes);
+            this.rivalNotes.push(...next.rivalNotes);
+            this.generatedMeasures = next.endMeasure;
+            this.nextNoteId = next.nextNoteId;
+            this.notes = this.notes.filter(
+              (n) => n.time + n.duration > songTime - 2 || n.holding
+            );
+            this.rivalNotes = this.rivalNotes.filter((n) => n.time > songTime - 2);
+          }
         }
       }
 
-      this.updateCountdownTicks(songTime);
-      this.updateRivalNotes(songTime);
-      this.updatePlayerNotesAndHolds(songTime, dt);
+      if (!this.audio.isTrackLoading()) {
+        this.updateCountdownTicks(songTime);
+        this.updateRivalNotes(songTime);
+        this.updatePlayerNotesAndHolds(songTime, dt);
+      }
       this.updateVisualTimers(dt);
 
       // Check Stage Clear when the Creo song completes!
@@ -592,6 +615,7 @@ export class RhythmGame {
   }
 
   private getCountdownLabel(songTime: number): string | null {
+    if (this.audio.isTrackLoading()) return 'Loading...';
     if (songTime >= 0) return null;
     const beatDur = 60 / this.currentBpm;
     const elapsed = songTime + this.leadInSec;
@@ -621,6 +645,8 @@ export class RhythmGame {
     );
 
     for (const note of this.notes) {
+      if (note.time - songTime > 0.25) break;
+
       if (note.holding && !note.holdCompleted) {
         const endTime = note.time + note.duration;
         if (songTime >= endTime) {

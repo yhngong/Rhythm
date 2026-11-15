@@ -8,27 +8,34 @@ export class FunkAudioEngine {
   private freqBins: Uint8Array<ArrayBuffer> | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
-  private musicEl: HTMLAudioElement | null = null;
-  private mediaSourceConnected = false;
+  // Pre-fetched & WebAudio-decoded buffer caches for zero-stall, drift-free playback
+  private rawBufferCache = new Map<string, Promise<ArrayBuffer>>();
+  private decodedCache = new Map<string, AudioBuffer>();
+  private decodingCache = new Map<string, Promise<AudioBuffer>>();
+
+  private activeSource: AudioBufferSourceNode | null = null;
+  private playSessionId = 0;
 
   private currentTrack: CreoTrack | null = null;
   private endlessMode = false;
   private isPlaying = false;
   private isPaused = false;
+  private isLoading = false;
   private isMuted = false;
   private volume = 0.82;
 
-  // High-precision lead-in + drift-corrected MP3 clock
+  // Sample-accurate hardware clock + automatic wall-clock fallback watchdog
   private leadInSec = 2.0;
-  private leadInStartCtxTime = 0;
+  private playStartCtxTime = 0;
   private pauseSongTime = 0;
-  private mp3Started = false;
-  private loopTimeOffset = 0;
-  private clockAnchorCtxTime = 0;
-  private clockAnchorSongTime = 0;
+
+  private lastObservedCtxTime = -1;
+  private lastCtxAdvancePerfSec = 0;
+  private lastResumeAttemptPerfSec = 0;
+  private useWallClockFallback = false;
+  private wallClockZeroPerfSec = 0;
 
   private smoothedBassPulse = 0;
-  private onLoopCallback: ((newOffsetSec: number) => void) | null = null;
 
   public ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -55,37 +62,77 @@ export class FunkAudioEngine {
       this.noiseBuffer = this.buildNoiseBuffer(this.ctx);
     }
 
-    if (!this.musicEl) {
-      this.musicEl = new Audio();
-      this.musicEl.preload = 'auto';
-      this.musicEl.crossOrigin = 'anonymous';
-      this.musicEl.addEventListener('ended', () => {
-        if (!this.isPlaying || this.isPaused || !this.currentTrack || !this.musicEl) return;
-        if (this.endlessMode) {
-          this.loopTimeOffset += this.currentTrack.durationSec;
-          this.musicEl.currentTime = 0;
-          void this.musicEl.play();
-          if (this.ctx) {
-            this.clockAnchorCtxTime = this.ctx.currentTime;
-            this.clockAnchorSongTime = this.loopTimeOffset;
-          }
-          if (this.onLoopCallback) {
-            this.onLoopCallback(this.loopTimeOffset);
-          }
-        }
+    this.resumeContextIfNeeded();
+    return this.ctx;
+  }
+
+  public resumeContextIfNeeded(): void {
+    if (!this.ctx) return;
+    if ((this.ctx.state as string) !== 'running' && (this.ctx.state as string) !== 'closed') {
+      void this.ctx.resume().catch(() => {
+        // Ignore transient autoplay rejection outside user gesture
       });
     }
+  }
 
-    if (!this.mediaSourceConnected && this.musicEl && this.musicGain) {
-      const srcNode = this.ctx.createMediaElementSource(this.musicEl);
-      srcNode.connect(this.musicGain);
-      this.mediaSourceConnected = true;
-    }
+  /**
+   * Pre-fetches the MP3 bytes in the background (even before AudioContext exists)
+   * and decodes into an AudioBuffer if AudioContext is already initialized.
+   */
+  public preloadTrack(track: CreoTrack): void {
+    void this.fetchRawTrack(track)
+      .then(() => {
+        if (this.ctx) {
+          return this.decodeTrack(track);
+        }
+      })
+      .catch(() => {
+        // Handled on startTrack fallback if network offline
+      });
+  }
 
-    if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
-    }
-    return this.ctx;
+  private fetchRawTrack(track: CreoTrack): Promise<ArrayBuffer> {
+    const existing = this.rawBufferCache.get(track.id);
+    if (existing) return existing;
+
+    const req = fetch(track.src)
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} loading ${track.src}`);
+        }
+        return res.arrayBuffer();
+      })
+      .catch((err) => {
+        this.rawBufferCache.delete(track.id);
+        throw err;
+      });
+
+    this.rawBufferCache.set(track.id, req);
+    return req;
+  }
+
+  private decodeTrack(track: CreoTrack): Promise<AudioBuffer> {
+    const cached = this.decodedCache.get(track.id);
+    if (cached) return Promise.resolve(cached);
+
+    const inflight = this.decodingCache.get(track.id);
+    if (inflight) return inflight;
+
+    const ctx = this.ensureContext();
+    const promise = this.fetchRawTrack(track)
+      .then((raw) => ctx.decodeAudioData(raw.slice(0)))
+      .then((decoded) => {
+        this.decodedCache.set(track.id, decoded);
+        this.decodingCache.delete(track.id);
+        return decoded;
+      })
+      .catch((err) => {
+        this.decodingCache.delete(track.id);
+        throw err;
+      });
+
+    this.decodingCache.set(track.id, promise);
+    return promise;
   }
 
   private buildNoiseBuffer(ctx: AudioContext): AudioBuffer {
@@ -96,6 +143,69 @@ export class FunkAudioEngine {
       data[i] = Math.random() * 2 - 1;
     }
     return buffer;
+  }
+
+  private stopActiveSource(): void {
+    if (!this.activeSource) return;
+    const src = this.activeSource;
+    this.activeSource = null;
+    src.onended = null;
+    try {
+      src.stop();
+    } catch {
+      // Already stopped
+    }
+    try {
+      src.disconnect();
+    } catch {
+      // Already disconnected
+    }
+  }
+
+  private scheduleBufferFromSongTime(buffer: AudioBuffer, fromSongTime: number): void {
+    const ctx = this.ensureContext();
+    this.stopActiveSource();
+
+    const nowCtx = ctx.currentTime;
+    const nowPerf = performance.now() / 1000;
+
+    this.playStartCtxTime = nowCtx - fromSongTime;
+    this.wallClockZeroPerfSec = nowPerf - fromSongTime;
+    this.lastObservedCtxTime = nowCtx;
+    this.lastCtxAdvancePerfSec = nowPerf;
+    this.useWallClockFallback = false;
+
+    if (!this.endlessMode && fromSongTime >= buffer.duration - 0.02) {
+      return;
+    }
+
+    if (!this.musicGain) return;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = this.endlessMode;
+    src.connect(this.musicGain);
+    src.onended = () => {
+      try {
+        src.disconnect();
+      } catch {
+        // Ignore
+      }
+      if (this.activeSource === src) {
+        this.activeSource = null;
+      }
+    };
+
+    if (fromSongTime < 0) {
+      src.start(nowCtx + -fromSongTime, 0);
+    } else {
+      const offset = this.endlessMode
+        ? ((fromSongTime % buffer.duration) + buffer.duration) % buffer.duration
+        : Math.min(Math.max(0, fromSongTime), Math.max(0, buffer.duration - 0.02));
+      src.start(nowCtx, offset);
+    }
+
+    this.activeSource = src;
   }
 
   public toggleMute(): boolean {
@@ -110,157 +220,149 @@ export class FunkAudioEngine {
     return this.isMuted;
   }
 
-  public startTrack(
-    track: CreoTrack,
-    leadInSec: number,
-    endless: boolean,
-    onEndlessLoop?: (newOffsetSec: number) => void
-  ): void {
-    const ctx = this.ensureContext();
-    if (!this.musicEl) return;
+  public isTrackLoading(): boolean {
+    return this.isPlaying && this.isLoading;
+  }
+
+  public startTrack(track: CreoTrack, leadInSec: number, endless: boolean): void {
+    this.ensureContext();
+    const sessionId = ++this.playSessionId;
+    this.stopActiveSource();
 
     this.currentTrack = track;
     this.leadInSec = leadInSec;
     this.endlessMode = endless;
-    this.onLoopCallback = onEndlessLoop ?? null;
-
-    this.musicEl.pause();
-    this.musicEl.src = track.src;
-    this.musicEl.currentTime = 0;
-    this.musicEl.load();
-
-    // Prime/unlock HTMLAudioElement inside user gesture so delayed start after countdown never blocks
-    this.musicEl.muted = true;
-    const unlockPromise = this.musicEl.play();
-    if (unlockPromise !== undefined) {
-      unlockPromise
-        .then(() => {
-          if (!this.mp3Started && this.musicEl) {
-            this.musicEl.pause();
-            this.musicEl.currentTime = 0;
-            this.musicEl.muted = false;
-          }
-        })
-        .catch(() => {
-          if (this.musicEl) this.musicEl.muted = false;
-        });
-    }
-
-    this.leadInStartCtxTime = ctx.currentTime;
-    this.clockAnchorCtxTime = ctx.currentTime;
-    this.clockAnchorSongTime = -leadInSec;
     this.pauseSongTime = -leadInSec;
-    this.loopTimeOffset = 0;
-    this.mp3Started = false;
     this.isPlaying = true;
     this.isPaused = false;
     this.smoothedBassPulse = 0;
+    this.useWallClockFallback = false;
+
+    const cached = this.decodedCache.get(track.id);
+    if (cached) {
+      this.isLoading = false;
+      this.scheduleBufferFromSongTime(cached, -leadInSec);
+      return;
+    }
+
+    this.isLoading = true;
+    void this.decodeTrack(track)
+      .then((buffer) => {
+        if (this.playSessionId !== sessionId || !this.isPlaying) return;
+        this.isLoading = false;
+        if (this.isPaused) {
+          this.pauseSongTime = -this.leadInSec;
+          return;
+        }
+        this.scheduleBufferFromSongTime(buffer, -this.leadInSec);
+      })
+      .catch((err) => {
+        console.error('Failed to decode Creo track; running fallback clock:', err);
+        if (this.playSessionId !== sessionId || !this.isPlaying) return;
+        this.isLoading = false;
+        this.useWallClockFallback = true;
+        this.wallClockZeroPerfSec = performance.now() / 1000 + this.leadInSec;
+      });
   }
 
   public pauseSong(): void {
     if (!this.isPlaying || this.isPaused) return;
     this.pauseSongTime = this.getSongTime();
     this.isPaused = true;
-    if (this.mp3Started && this.musicEl) {
-      this.musicEl.pause();
-    }
+    this.stopActiveSource();
   }
 
   public resumeSong(): void {
     if (!this.isPlaying || !this.isPaused) return;
-    const ctx = this.ensureContext();
+    this.ensureContext();
     this.isPaused = false;
 
-    if (this.pauseSongTime < 0) {
-      // Still in countdown
-      this.leadInStartCtxTime = ctx.currentTime - (this.pauseSongTime + this.leadInSec);
-      this.clockAnchorCtxTime = ctx.currentTime;
-      this.clockAnchorSongTime = this.pauseSongTime;
-    } else if (this.musicEl) {
-      this.mp3Started = true;
-      this.musicEl.muted = false;
-      const localTarget = Math.max(0, this.pauseSongTime - this.loopTimeOffset);
-      this.musicEl.currentTime = localTarget;
-      void this.musicEl.play();
-      this.clockAnchorCtxTime = ctx.currentTime;
-      this.clockAnchorSongTime = this.pauseSongTime;
+    if (this.isLoading) {
+      return;
+    }
+
+    const cached = this.currentTrack ? this.decodedCache.get(this.currentTrack.id) : undefined;
+    if (cached && !this.useWallClockFallback) {
+      this.scheduleBufferFromSongTime(cached, this.pauseSongTime);
+    } else {
+      this.useWallClockFallback = true;
+      this.wallClockZeroPerfSec = performance.now() / 1000 - this.pauseSongTime;
     }
   }
 
   public stopSong(): void {
+    this.playSessionId++;
     this.isPlaying = false;
     this.isPaused = false;
-    this.mp3Started = false;
-    if (this.musicEl) {
-      this.musicEl.pause();
-      this.musicEl.currentTime = 0;
-    }
+    this.isLoading = false;
+    this.stopActiveSource();
   }
 
   /**
-   * Returns butter-smooth, drift-corrected song time in seconds:
+   * Sample-accurate song time in seconds:
    *  - Negative during the 4-beat pre-song countdown (-leadInSec .. 0)
-   *  - Locked to Creo's MP3 playback from 0.000s onward!
+   *  - Hardware-locked to Creo's WebAudio buffer from 0.000s onward
+   *  - Protected by a wall-clock watchdog so gameplay can never freeze if OS audio stalls
    */
   public getSongTime(): number {
-    if (!this.ctx || !this.isPlaying) return 0;
+    if (!this.isPlaying) return 0;
+    if (this.isLoading) return -this.leadInSec;
     if (this.isPaused) return this.pauseSongTime;
 
+    const nowPerf = performance.now() / 1000;
+
+    if (!this.ctx || this.useWallClockFallback) {
+      if (this.ctx && (this.ctx.state as string) === 'running') {
+        // AudioContext recovered — seamlessly re-lock to hardware audio!
+        const currentFallbackTime = nowPerf - this.wallClockZeroPerfSec;
+        const cached = this.currentTrack ? this.decodedCache.get(this.currentTrack.id) : undefined;
+        if (cached) {
+          this.scheduleBufferFromSongTime(cached, currentFallbackTime);
+          return currentFallbackTime;
+        }
+      }
+      return nowPerf - this.wallClockZeroPerfSec;
+    }
+
     const nowCtx = this.ctx.currentTime;
-
-    if (!this.mp3Started) {
-      const countdownTime = nowCtx - this.leadInStartCtxTime - this.leadInSec;
-      if (countdownTime >= 0 && this.musicEl) {
-        this.mp3Started = true;
-        this.musicEl.muted = false;
-        this.musicEl.currentTime = 0;
-        void this.musicEl.play();
-        this.clockAnchorCtxTime = nowCtx;
-        this.clockAnchorSongTime = 0;
-        return 0;
+    if (Math.abs(nowCtx - this.lastObservedCtxTime) > 1e-6) {
+      this.lastObservedCtxTime = nowCtx;
+      this.lastCtxAdvancePerfSec = nowPerf;
+    } else {
+      const stalledSec = nowPerf - this.lastCtxAdvancePerfSec;
+      if (stalledSec > 0.08 && nowPerf - this.lastResumeAttemptPerfSec > 0.25) {
+        this.lastResumeAttemptPerfSec = nowPerf;
+        this.resumeContextIfNeeded();
       }
-      return countdownTime;
-    }
-
-    const predicted = this.clockAnchorSongTime + (nowCtx - this.clockAnchorCtxTime);
-
-    if (this.musicEl && !this.musicEl.paused && this.musicEl.readyState >= 2) {
-      const actualMp3Time = this.loopTimeOffset + this.musicEl.currentTime;
-      const drift = actualMp3Time - predicted;
-      if (Math.abs(drift) > 0.085) {
-        // Snap if tab hiccuped >85ms
-        this.clockAnchorCtxTime = nowCtx;
-        this.clockAnchorSongTime = actualMp3Time;
-        return actualMp3Time;
-      } else if (Math.abs(drift) > 0.012) {
-        // Gently nudge PLL anchor toward MP3 clock with zero visual jump
-        const nudged = predicted + drift * 0.12;
-        this.clockAnchorCtxTime = nowCtx;
-        this.clockAnchorSongTime = nudged;
-        return nudged;
+      if (stalledSec > 0.35) {
+        const currentSongT = nowCtx - this.playStartCtxTime;
+        this.useWallClockFallback = true;
+        this.wallClockZeroPerfSec = nowPerf - currentSongT;
+        return currentSongT;
       }
     }
 
-    return predicted;
+    return nowCtx - this.playStartCtxTime;
   }
 
   public isTrackEnded(): boolean {
-    if (!this.isPlaying || this.endlessMode || !this.mp3Started || !this.musicEl || !this.currentTrack) {
+    if (!this.isPlaying || this.isLoading || this.endlessMode || !this.currentTrack) {
       return false;
     }
-    return this.musicEl.ended || this.getSongTime() >= this.currentTrack.durationSec - 0.15;
+    const bufferDur = this.decodedCache.get(this.currentTrack.id)?.duration ?? this.currentTrack.durationSec;
+    return this.getSongTime() >= bufferDur - 0.12;
   }
 
   /**
-   * Real-time sub-bass kick pulse extracted directly from Creo's MP3 via WebAudio AnalyserNode!
+   * Real-time sub-bass kick pulse extracted directly from Creo's audio via WebAudio AnalyserNode!
    */
   public getKickPulse(): number {
-    if (!this.ctx || !this.isPlaying || this.isPaused) return 0;
+    if (!this.ctx || !this.isPlaying || this.isPaused || this.isLoading) return 0;
 
-    if (!this.mp3Started && this.currentTrack) {
-      // Gentle countdown beat pulse before MP3 kicks in
+    const songTime = this.getSongTime();
+    if (songTime < 0 && this.currentTrack) {
       const beatDur = 60 / this.currentTrack.bpm;
-      const t = this.getSongTime() + this.leadInSec;
+      const t = songTime + this.leadInSec;
       const frac = ((t % beatDur) + beatDur) % beatDur;
       return Math.pow(Math.max(0, 1 - frac / 0.2), 2.2) * 0.65;
     }
@@ -268,7 +370,7 @@ export class FunkAudioEngine {
     if (!this.analyser || !this.freqBins) return 0;
     this.analyser.getByteFrequencyData(this.freqBins);
 
-    // Bins 1..4 (~43 Hz .. 215 Hz at 44.1kHz / 256 FFT) capture Creo's punchy kick & bass!
+    // Bins 1..4 (~43 Hz .. 215 Hz) capture Creo's punchy kick & sub-bass!
     const lowSum =
       (this.freqBins[1] + this.freqBins[2] * 1.2 + this.freqBins[3] + this.freqBins[4] * 0.6) /
       3.8;
@@ -279,15 +381,13 @@ export class FunkAudioEngine {
   }
 
   /**
-   * Crisp, unpitched percussive rhythm hit-tick so catching bars feels super tactile
-   * without clashing harmonically against Creo's music!
+   * Crisp, unpitched percussive rhythm hit-tick with full WebAudio node cleanup on ended!
    */
   public playPlayerHit(isSick: boolean): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain || !this.noiseBuffer) return;
+    if (!this.masterGain || !this.noiseBuffer || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
 
-    // Clean woody/crystalline rhythm click
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(isSick ? 1150 : 920, now);
@@ -299,10 +399,13 @@ export class FunkAudioEngine {
 
     osc.connect(oGain);
     oGain.connect(this.masterGain);
+    osc.onended = () => {
+      osc.disconnect();
+      oGain.disconnect();
+    };
     osc.start(now);
     osc.stop(now + 0.042);
 
-    // Subtle crisp transient snap
     const snap = ctx.createBufferSource();
     snap.buffer = this.noiseBuffer;
     const bp = ctx.createBiquadFilter();
@@ -317,13 +420,18 @@ export class FunkAudioEngine {
     snap.connect(bp);
     bp.connect(nGain);
     nGain.connect(this.masterGain);
+    snap.onended = () => {
+      snap.disconnect();
+      bp.disconnect();
+      nGain.disconnect();
+    };
     snap.start(now);
     snap.stop(now + 0.03);
   }
 
   public playMissSound(): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain) return;
+    if (!this.masterGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
 
     const osc = ctx.createOscillator();
@@ -337,13 +445,17 @@ export class FunkAudioEngine {
 
     osc.connect(gain);
     gain.connect(this.masterGain);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
     osc.start(now);
     osc.stop(now + 0.15);
   }
 
   public playSpamJamSound(): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain) return;
+    if (!this.masterGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
 
     for (const detune of [-16, 17]) {
@@ -358,6 +470,10 @@ export class FunkAudioEngine {
 
       osc.connect(gain);
       gain.connect(this.masterGain);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
       osc.start(now);
       osc.stop(now + 0.24);
     }
@@ -365,7 +481,7 @@ export class FunkAudioEngine {
 
   public playCountdownTick(step: 3 | 2 | 1 | 0): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain) return;
+    if (!this.masterGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
     const freq = step === 0 ? 880 : step === 1 ? 587.33 : step === 2 ? 523.25 : 440;
 
@@ -382,13 +498,17 @@ export class FunkAudioEngine {
 
     osc.connect(gain);
     gain.connect(this.masterGain);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
     osc.start(now);
     osc.stop(now + 0.26);
   }
 
   public playUiSelect(): void {
     const ctx = this.ensureContext();
-    if (!this.masterGain) return;
+    if (!this.masterGain || (ctx.state as string) !== 'running') return;
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
@@ -399,6 +519,10 @@ export class FunkAudioEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
     osc.connect(gain);
     gain.connect(this.masterGain);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
     osc.start(now);
     osc.stop(now + 0.09);
   }
