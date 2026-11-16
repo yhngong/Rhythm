@@ -1,7 +1,7 @@
 import { FunkAudioEngine } from './audio';
 import { generateChartForTrack } from './chartGenerator';
 import { DIFFICULTIES, getLaneKeys } from './difficulties';
-import { CharacterPose, GameRenderer, LaneVisualState } from './renderer';
+import { GameRenderer, LaneVisualState } from './renderer';
 import { GameSettings, getPaletteLanes, loadSettings, saveSettings } from './settings';
 import { CREO_TRACKS, CreoTrack, pickRandomCreoTrack } from './songs';
 import {
@@ -14,7 +14,6 @@ import {
   Judgment,
   LaneIndex,
   NoteBar,
-  RivalNote,
   RunStats,
   ScreenState,
 } from './types';
@@ -48,7 +47,6 @@ export class RhythmGame {
   private nextNoteId = 1;
 
   private notes: NoteBar[] = [];
-  private rivalNotes: RivalNote[] = [];
   private lanes: LaneVisualState[] = Array.from({ length: 6 }, () => ({
     pressed: false,
     hitFlash: 0,
@@ -64,8 +62,6 @@ export class RhythmGame {
   public stats: RunStats = this.freshStats();
   private popups: FloatingPopup[] = [];
   private particles: HitParticle[] = [];
-  private playerPose: CharacterPose = { lane: -1, missTimer: 0, poseTimer: 0 };
-  private rivalPose: CharacterPose = { lane: -1, missTimer: 0, poseTimer: 0 };
 
   private lastCountdownStep = 4;
   private lastFramePerf = performance.now();
@@ -184,8 +180,6 @@ export class RhythmGame {
       whiffFlash: 0,
       jamRemainingSec: 0,
     }));
-    this.playerPose = { lane: -1, missTimer: 0, poseTimer: 0 };
-    this.rivalPose = { lane: -1, missTimer: 0, poseTimer: 0 };
     this.lastCountdownStep = 4;
 
     const secPerMeasure = secPerBeat * 4;
@@ -201,7 +195,6 @@ export class RhythmGame {
       0
     );
     this.notes = section.playerNotes;
-    this.rivalNotes = section.rivalNotes;
     this.generatedMeasures = section.endMeasure;
     this.nextNoteId = section.nextNoteId;
 
@@ -408,7 +401,6 @@ export class RhythmGame {
       this.spamHeat = Math.max(0, this.spamHeat - (judgment === 'SICK' ? 0.16 : 0.09));
 
       laneState.hitFlash = 1.0;
-      this.playerPose = { lane, missTimer: 0, poseTimer: 0.34 };
       this.audio.playPlayerHit(judgment === 'SICK');
 
       if (targetNote.duration > 0) {
@@ -453,8 +445,6 @@ export class RhythmGame {
     this.stats.hp = Math.max(0, this.stats.hp - this.config.whiffHpPenalty);
     this.stats.counts.SPAM++;
     this.stats.totalJudgedEvents++;
-
-    this.playerPose = { lane: -1, missTimer: 0.32, poseTimer: 0 };
 
     const laneMashing = this.laneWhiffTimes[lane].length >= 3;
     const globalMashing = this.globalWhiffTimes.length >= (this.config.laneCount === 6 ? 6 : 5);
@@ -580,20 +570,17 @@ export class RhythmGame {
               loopOffset
             );
             this.notes.push(...next.playerNotes);
-            this.rivalNotes.push(...next.rivalNotes);
             this.generatedMeasures = next.endMeasure;
             this.nextNoteId = next.nextNoteId;
             this.notes = this.notes.filter(
               (n) => n.time + n.duration > songTime - 2 || n.holding
             );
-            this.rivalNotes = this.rivalNotes.filter((n) => n.time > songTime - 2);
           }
         }
       }
 
       if (!this.audio.isTrackLoading()) {
         this.updateCountdownTicks(songTime);
-        this.updateRivalNotes(songTime);
         this.updatePlayerNotesAndHolds(songTime, dt);
       }
       this.updateVisualTimers(dt);
@@ -607,11 +594,13 @@ export class RhythmGame {
     }
 
     const countdownText = this.getCountdownLabel(songTime);
+    const visuals = this.audio.getVisualFrame();
 
     this.renderer.renderGameplay({
       width: this.canvas.width,
       height: this.canvas.height,
       songTime,
+      beatOffsetSec: this.currentTrack.beatOffsetSec,
       totalDurationSec: this.totalDurationSec,
       mode: this.mode,
       difficulty: this.config,
@@ -619,7 +608,8 @@ export class RhythmGame {
       trackTitle: this.currentTrack.title,
       trackArtist: this.currentTrack.artist,
       currentBpm: this.currentBpm,
-      kickPulse: this.audio.getKickPulse(),
+      kickPulse: visuals.kickPulse,
+      visuals,
       notes: this.notes,
       lanes: this.lanes,
       stats: this.stats,
@@ -628,8 +618,6 @@ export class RhythmGame {
       spamHeat: this.spamHeat,
       popups: this.popups,
       particles: this.particles,
-      playerPose: this.playerPose,
-      rivalPose: this.rivalPose,
       countdownText,
     });
   }
@@ -657,18 +645,6 @@ export class RhythmGame {
     if (beatIdx === 1) return '2';
     if (beatIdx === 2) return '1';
     return 'FUNK!';
-  }
-
-  private updateRivalNotes(songTime: number): void {
-    for (const rn of this.rivalNotes) {
-      if (rn.triggered) continue;
-      if (songTime >= rn.time) {
-        rn.triggered = true;
-        this.rivalPose = { lane: rn.lane, missTimer: 0, poseTimer: Math.max(0.22, rn.duration) };
-      } else {
-        break;
-      }
-    }
   }
 
   private updatePlayerNotesAndHolds(songTime: number, dt: number): void {
@@ -708,8 +684,6 @@ export class RhythmGame {
           this.stats.score += Math.round(180 * dt);
           this.stats.hp = Math.min(100, this.stats.hp + 2.2 * dt);
           this.lanes[note.lane].hitFlash = Math.max(this.lanes[note.lane].hitFlash, 0.55);
-          this.playerPose.lane = note.lane;
-          this.playerPose.poseTimer = 0.12;
           if (songTime - note.lastHoldTickTime >= 0.09) {
             note.lastHoldTickTime = songTime;
             const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
@@ -724,7 +698,6 @@ export class RhythmGame {
         this.stats.counts.MISS++;
         this.stats.totalJudgedEvents++;
         this.stats.hp = Math.max(0, this.stats.hp - this.config.missHpPenalty);
-        this.playerPose = { lane: -1, missTimer: 0.35, poseTimer: 0 };
         this.audio.playMissSound();
 
         const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
@@ -741,19 +714,6 @@ export class RhythmGame {
       l.hitFlash = Math.max(0, l.hitFlash - dt * 6.5);
       l.whiffFlash = Math.max(0, l.whiffFlash - dt * 4.5);
       l.jamRemainingSec = Math.max(0, l.jamRemainingSec - dt);
-    }
-
-    if (this.playerPose.poseTimer > 0) {
-      this.playerPose.poseTimer -= dt;
-      if (this.playerPose.poseTimer <= 0) this.playerPose.lane = -1;
-    }
-    if (this.playerPose.missTimer > 0) {
-      this.playerPose.missTimer = Math.max(0, this.playerPose.missTimer - dt);
-    }
-
-    if (this.rivalPose.poseTimer > 0) {
-      this.rivalPose.poseTimer -= dt;
-      if (this.rivalPose.poseTimer <= 0) this.rivalPose.lane = -1;
     }
 
     for (const p of this.popups) {

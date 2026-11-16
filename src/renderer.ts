@@ -1,3 +1,4 @@
+import { MusicVisualFrame } from './audio';
 import { getLaneLabels } from './difficulties';
 import {
   DEFAULT_SETTINGS,
@@ -25,16 +26,11 @@ export interface LaneVisualState {
   jamRemainingSec: number;
 }
 
-export interface CharacterPose {
-  lane: -1 | LaneIndex;
-  missTimer: number;
-  poseTimer: number;
-}
-
 export interface RenderFrameState {
   width: number;
   height: number;
   songTime: number;
+  beatOffsetSec: number;
   totalDurationSec: number;
   mode: GameMode;
   difficulty: DifficultyConfig;
@@ -43,6 +39,7 @@ export interface RenderFrameState {
   trackArtist: string;
   currentBpm: number;
   kickPulse: number;
+  visuals: MusicVisualFrame;
   notes: NoteBar[];
   lanes: LaneVisualState[];
   stats: RunStats;
@@ -51,8 +48,6 @@ export interface RenderFrameState {
   spamHeat: number;
   popups: FloatingPopup[];
   particles: HitParticle[];
-  playerPose: CharacterPose;
-  rivalPose: CharacterPose;
   countdownText: string | null;
 }
 
@@ -148,18 +143,44 @@ export class GameRenderer {
     const isLight = settings.themeMode === 'light';
     const laneColors = this.getLaneColors(settings, laneCount);
 
-    const bg = ctx.createLinearGradient(0, 0, 0, height);
+    const colorCycle = (timeSec * 0.35) % laneColors.length;
+    const idxA = Math.floor(colorCycle) % laneColors.length;
+    const idxB = (idxA + 1) % laneColors.length;
+    const frac = colorCycle - Math.floor(colorCycle);
+    const tintTop = this.lerpHex(laneColors[idxA].main, laneColors[idxB].main, frac);
+    const tintBot = this.lerpHex(
+      laneColors[(idxA + 2) % laneColors.length].main,
+      laneColors[(idxB + 2) % laneColors.length].main,
+      frac
+    );
+
+    const bg = ctx.createLinearGradient(0, 0, width, height);
     if (isLight) {
-      bg.addColorStop(0, '#F3F7FD');
-      bg.addColorStop(0.55, '#E7EFFA');
-      bg.addColorStop(1, '#DAE5F5');
+      bg.addColorStop(0, this.mixHex('#F3F7FD', tintTop, 0.16));
+      bg.addColorStop(0.55, '#E9F0FB');
+      bg.addColorStop(1, this.mixHex('#DCE6F6', tintBot, 0.2));
     } else {
-      bg.addColorStop(0, '#282E3A');
-      bg.addColorStop(0.55, '#232832');
-      bg.addColorStop(1, '#1B1F27');
+      bg.addColorStop(0, this.mixHex('#252B37', tintTop, 0.2));
+      bg.addColorStop(0.55, '#202530');
+      bg.addColorStop(1, this.mixHex('#191D26', tintBot, 0.24));
     }
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
+
+    // Subtle ambient expanding polygon rings on the menu
+    ctx.save();
+    for (let r = 0; r < 5; r++) {
+      const p = ((timeSec * 0.22 + r * 0.2) % 1 + 1) % 1;
+      const rad = 80 + p * Math.hypot(width, height) * 0.55;
+      ctx.strokeStyle = this.hexWithAlpha(
+        laneColors[r % laneColors.length].main,
+        (1 - p) * (isLight ? 0.18 : 0.15)
+      );
+      ctx.lineWidth = 3;
+      this.regularPolygonPath(width / 2, height / 2, rad, 6, timeSec * 0.18 + r * 0.2);
+      ctx.stroke();
+    }
+    ctx.restore();
 
     // Floating glossy 3D custom notes gently scrolling downward in the background
     const cols = 8;
@@ -298,48 +319,21 @@ export class GameRenderer {
       ctx.scale(zoom, zoom);
       ctx.translate(-width / 2, -height / 2);
 
-      // 1. Matte Slate or Daylight Cloud Stage Backdrop
-      this.drawStageBackdrop(width, height, songTime, kickPulse, settings.themeMode, laneColors);
+      // 1. Music-Synced Color-Changing & Pattern-Shifting Visualizer Background!
+      this.drawMusicSyncedBackdrop(
+        width,
+        height,
+        highwayX,
+        highwayWidth,
+        songTime,
+        state.beatOffsetSec,
+        state.currentBpm,
+        state.visuals,
+        settings.themeMode,
+        laneColors
+      );
 
-      // 2. Flanking Glossy Cartoon Speakers & FNF Stage Characters
-      if (width >= highwayWidth + 320) {
-        const leftStageX = highwayX * 0.5;
-        const rightStageX = highwayX + highwayWidth + (width - (highwayX + highwayWidth)) * 0.5;
-        const stageFloorY = height - 160;
-        const idlePal = this.getIdlePalette(settings.themeMode);
-
-        this.drawSpeakerStack(
-          leftStageX,
-          stageFloorY - 96,
-          kickPulse,
-          laneColors[laneColors.length - 1],
-          idlePal
-        );
-        this.drawSpeakerStack(rightStageX, stageFloorY - 96, kickPulse, laneColors[0], idlePal);
-
-        this.drawRivalCharacter(
-          leftStageX,
-          stageFloorY,
-          songTime,
-          state.currentBpm,
-          state.rivalPose,
-          laneCount,
-          laneColors,
-          idlePal
-        );
-        this.drawPlayerCharacter(
-          rightStageX,
-          stageFloorY,
-          songTime,
-          state.currentBpm,
-          state.playerPose,
-          laneCount,
-          laneColors,
-          idlePal
-        );
-      }
-
-      // 3. Rounded 3D Highway Track
+      // 2. Rounded 3D Highway Track
       this.drawHighwayTrack(
         highwayX,
         highwayWidth,
@@ -786,194 +780,366 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  private drawStageBackdrop(
+  /**
+   * Full-screen music-reactive background that shifts colors on every beat/measure
+   * and morphs between 4 distinct geometric visualizer patterns on Creo's phrase changes!
+   */
+  private drawMusicSyncedBackdrop(
     width: number,
     height: number,
+    highwayX: number,
+    highwayWidth: number,
     songTime: number,
-    kickPulse: number,
+    beatOffsetSec: number,
+    bpm: number,
+    visuals: MusicVisualFrame,
     theme: ThemeMode,
     laneColors: readonly LaneColorSpec[]
   ): void {
     const ctx = this.ctx;
     const isLight = theme === 'light';
-    const bg = ctx.createLinearGradient(0, 0, 0, height);
-    if (isLight) {
-      bg.addColorStop(0, '#F5F8FD');
-      bg.addColorStop(0.68, '#E8F0FB');
-      bg.addColorStop(1, '#DAE5F5');
-    } else {
-      bg.addColorStop(0, '#282E3A');
-      bg.addColorStop(0.68, '#222731');
-      bg.addColorStop(1, '#1A1E26');
-    }
+    const { kickPulse, midPulse, spectrum } = visuals;
+
+    const secPerBeat = 60 / Math.max(60, bpm);
+    const exactBeat = (songTime - beatOffsetSec) / secPerBeat;
+    const beatFloor = Math.floor(exactBeat);
+    const beatFrac = ((exactBeat % 1) + 1) % 1;
+    const beatSnap = Math.pow(1 - beatFrac, 2.2);
+
+    const measureIdx = Math.floor(exactBeat / 4);
+    const nCols = laneColors.length;
+
+    // Smoothly shift primary & secondary colors across the palette on every measure + beat!
+    const idxA = ((measureIdx + Math.floor(beatFloor / 2)) % nCols + nCols) % nCols;
+    const idxB = (idxA + 1) % nCols;
+    const idxC = (idxA + 2) % nCols;
+    const smoothT = (((exactBeat / 2) % 1) + 1) % 1;
+
+    const colA = this.lerpHex(laneColors[idxA].main, laneColors[idxB].main, smoothT);
+    const colB = this.lerpHex(laneColors[idxB].main, laneColors[idxC].main, smoothT);
+    const colC = laneColors[((beatFloor % nCols) + nCols) % nCols].top;
+
+    // 1. Dynamic Beat-Pulsing Color Gradient Sky
+    const baseTop = isLight ? '#F2F6FD' : '#1D222E';
+    const baseMid = isLight ? '#E6EFFB' : '#181C26';
+    const baseBot = isLight ? '#D8E5F7' : '#131720';
+    const colorIntensity = Math.min(
+      0.48,
+      (isLight ? 0.16 : 0.2) + kickPulse * 0.2 + midPulse * 0.12 + beatSnap * 0.07
+    );
+
+    const gradAngle = songTime * 0.35;
+    const gx = Math.cos(gradAngle) * width * 0.35;
+    const bg = ctx.createLinearGradient(width / 2 - gx, 0, width / 2 + gx, height);
+    bg.addColorStop(0, this.mixHex(baseTop, colA, colorIntensity));
+    bg.addColorStop(0.5, this.mixHex(baseMid, colB, colorIntensity * 0.72));
+    bg.addColorStop(1, this.mixHex(baseBot, colC, colorIntensity * 0.95));
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
-    const horizonY = height - 146;
-    ctx.fillStyle = isLight ? '#D4E0F3' : '#1B2029';
-    ctx.fillRect(0, horizonY, width, height - horizonY);
+    // 2. Central Bass-Breathing Radial Aura
+    const maxRadius = Math.max(80, Math.hypot(width, height) * (0.38 + kickPulse * 0.18));
+    const aura = ctx.createRadialGradient(
+      width / 2,
+      height * 0.5,
+      20,
+      width / 2,
+      height * 0.5,
+      maxRadius
+    );
+    aura.addColorStop(0, this.hexWithAlpha(colA, (isLight ? 0.22 : 0.28) * (0.45 + kickPulse)));
+    aura.addColorStop(0.55, this.hexWithAlpha(colB, (isLight ? 0.1 : 0.14) * (0.4 + midPulse)));
+    aura.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = aura;
+    ctx.fillRect(0, 0, width, height);
 
-    ctx.strokeStyle = isLight ? '#B3C4E0' : '#363F4F';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, horizonY);
-    ctx.lineTo(width, horizonY);
-    ctx.stroke();
+    // 3. Switch Geometric Visualizer Pattern every 4 measures (16 beats = 1 musical phrase)
+    //    with a smooth 1-beat crossfade between pattern modes!
+    const phrasePos = exactBeat / 16;
+    const modeIdx = ((Math.floor(phrasePos) % 4) + 4) % 4;
+    const nextModeIdx = (modeIdx + 1) % 4;
+    const phraseFrac = ((phrasePos % 1) + 1) % 1;
+    const crossfade = phraseFrac > 0.92 ? (phraseFrac - 0.92) / 0.08 : 0;
 
-    const lightCount = laneColors.length;
-    for (let i = 0; i < lightCount; i++) {
-      const col = laneColors[i].main;
-      const bx = width * (0.1 + (i / Math.max(1, lightCount - 1)) * 0.8);
-      const sway = Math.sin(songTime * 1.4 + i * 1.3) * 80;
-      ctx.save();
-      ctx.globalAlpha = (isLight ? 0.075 : 0.048) + kickPulse * 0.042;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(bx, 0);
-      ctx.lineTo(bx + sway - 115, horizonY);
-      ctx.lineTo(bx + sway + 115, horizonY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+    this.drawPatternLayer(
+      modeIdx,
+      1 - crossfade,
+      width,
+      height,
+      highwayX,
+      highwayWidth,
+      exactBeat,
+      beatSnap,
+      visuals,
+      isLight,
+      colA,
+      colB,
+      colC,
+      laneColors
+    );
+    if (crossfade > 0.01) {
+      this.drawPatternLayer(
+        nextModeIdx,
+        crossfade,
+        width,
+        height,
+        highwayX,
+        highwayWidth,
+        exactBeat,
+        beatSnap,
+        visuals,
+        isLight,
+        colA,
+        colB,
+        colC,
+        laneColors
+      );
     }
+
+    // 4. Always-On Live 16-Band Spectrum Equalizer Wings Hugging the Highway!
+    this.drawHighwayEdgeSpectrum(
+      width,
+      height,
+      highwayX,
+      highwayWidth,
+      spectrum,
+      kickPulse,
+      isLight,
+      colA,
+      colB
+    );
   }
 
-  private drawSpeakerStack(
-    cx: number,
-    cy: number,
-    kickPulse: number,
-    pal: JellyPalette,
-    cabinetPal: JellyPalette
+  private drawPatternLayer(
+    mode: number,
+    layerAlpha: number,
+    width: number,
+    height: number,
+    highwayX: number,
+    highwayWidth: number,
+    exactBeat: number,
+    beatSnap: number,
+    visuals: MusicVisualFrame,
+    isLight: boolean,
+    colA: string,
+    colB: string,
+    colC: string,
+    laneColors: readonly LaneColorSpec[]
   ): void {
+    if (layerAlpha <= 0.01) return;
     const ctx = this.ctx;
-    const bump = 1 + kickPulse * 0.065;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.scale(bump, bump);
-
-    this.drawJellyPill(-58, -68, 116, 136, 24, cabinetPal, 7, false);
-
-    for (const wy of [-28, 30]) {
-      ctx.beginPath();
-      ctx.arc(0, wy, 24, 0, Math.PI * 2);
-      ctx.fillStyle = '#1E2430';
-      ctx.fill();
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = pal.main;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(0, wy, 9 + kickPulse * 4, 0, Math.PI * 2);
-      ctx.fillStyle = pal.top;
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  private drawRivalCharacter(
-    x: number,
-    floorY: number,
-    songTime: number,
-    bpm: number,
-    pose: CharacterPose,
-    laneCount: LaneCount,
-    laneColors: readonly LaneColorSpec[],
-    headPal: JellyPalette
-  ): void {
-    const ctx = this.ctx;
-    const beatBounce = Math.abs(Math.sin(songTime * Math.PI * (bpm / 60))) * 8;
-    const lastIdx = laneColors.length - 1;
-    const pal: JellyPalette =
-      pose.lane !== -1 && laneColors[pose.lane] ? laneColors[pose.lane] : laneColors[lastIdx];
-    const leanX = pose.lane === 0 ? -10 : pose.lane === laneCount - 1 ? 10 : 0;
-    const stretchY =
-      pose.lane === Math.floor(laneCount / 2)
-        ? -10
-        : pose.lane === Math.floor(laneCount / 2) - 1
-        ? 6
-        : 0;
+    const { kickPulse, midPulse, highPulse, spectrum } = visuals;
+    const cx = width / 2;
+    const cy = height * 0.48;
 
     ctx.save();
-    ctx.translate(x + leanX, floorY);
 
-    const headY = -108 + beatBounce + stretchY;
-
-    this.drawJellyPill(-30, -76 + beatBounce * 0.5, 60, 64, 18, pal, 5, true);
-    this.drawJellyPill(-28, headY - 26, 56, 50, 18, headPal, 5, true);
-    this.drawJellyPill(-19, headY - 10, 38, 15, 7, pal, 2, false);
-
-    this.drawOutlinedText('Rival', 0, 22, 14, '#FFFFFF', '#18202E', 4.5);
-    ctx.restore();
-  }
-
-  private drawPlayerCharacter(
-    x: number,
-    floorY: number,
-    songTime: number,
-    bpm: number,
-    pose: CharacterPose,
-    laneCount: LaneCount,
-    laneColors: readonly LaneColorSpec[],
-    headPal: JellyPalette
-  ): void {
-    const ctx = this.ctx;
-    const beatBounce = Math.abs(Math.sin(songTime * Math.PI * (bpm / 60))) * 8;
-    const isMiss = pose.missTimer > 0;
-    const lastIdx = laneColors.length - 1;
-    const pal: JellyPalette = isMiss
-      ? BERRY_JAM_PALETTE
-      : pose.lane !== -1 && laneColors[pose.lane]
-      ? laneColors[pose.lane]
-      : laneColors[0];
-
-    const leanX = isMiss
-      ? (Math.random() - 0.5) * 8
-      : pose.lane === 0
-      ? -12
-      : pose.lane === laneCount - 1
-      ? 12
-      : 0;
-    const stretchY =
-      pose.lane === Math.floor(laneCount / 2)
-        ? -12
-        : pose.lane === Math.floor(laneCount / 2) - 1
-        ? 6
-        : 0;
-
-    ctx.save();
-    ctx.translate(x + leanX, floorY);
-
-    const headY = -106 + beatBounce + stretchY;
-
-    this.drawJellyPill(-30, -74 + beatBounce * 0.5, 60, 62, 18, pal, 5, true);
-    this.drawJellyPill(-27, headY - 25, 54, 48, 18, headPal, 5, false);
-
-    this.drawJellyPill(-29, headY - 31, 58, 16, 8, laneColors[lastIdx], 3, true);
-    this.drawJellyPill(15, headY - 25, 24, 10, 5, laneColors[lastIdx], 2, false);
-
-    if (isMiss) {
-      ctx.lineWidth = 3.5;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = '#FF5C7A';
-      for (const ex of [-10, 10]) {
-        ctx.beginPath();
-        ctx.moveTo(ex - 5, headY - 6);
-        ctx.lineTo(ex + 5, headY + 4);
-        ctx.moveTo(ex + 5, headY - 6);
-        ctx.lineTo(ex - 5, headY + 4);
+    if (mode === 0) {
+      // PATTERN 0: Expanding Beat-Locked Polygon Tunnel & Shockwaves
+      const ringCount = 7;
+      const maxR = Math.hypot(width, height) * 0.62;
+      const sides = Math.floor(exactBeat / 8) % 2 === 0 ? 6 : 8;
+      for (let i = 0; i < ringCount; i++) {
+        const p = (((exactBeat * 0.25 + i / ringCount) % 1) + 1) % 1;
+        const r = 40 + p * maxR + kickPulse * 24;
+        const alpha =
+          layerAlpha *
+          Math.sin(p * Math.PI) *
+          ((isLight ? 0.28 : 0.34) + kickPulse * 0.22);
+        const col = i % 2 === 0 ? colA : colB;
+        ctx.strokeStyle = this.hexWithAlpha(col, alpha);
+        ctx.lineWidth = 2.5 + kickPulse * 5 + beatSnap * 2.5;
+        const rot = exactBeat * 0.14 * (i % 2 === 0 ? 1 : -1) + midPulse * 0.25;
+        this.regularPolygonPath(cx, cy, r, sides, rot);
         ctx.stroke();
       }
+    } else if (mode === 1) {
+      // PATTERN 1: Concert Laser Beams & Symmetrical Horizontal Wing Equalizers
+      const beamCount = 6;
+      for (let i = 0; i < beamCount; i++) {
+        const side = i < beamCount / 2 ? -1 : 1;
+        const localIdx = i % (beamCount / 2);
+        const anchorX =
+          side < 0
+            ? highwayX * ((localIdx + 0.5) / (beamCount / 2))
+            : highwayX + highwayWidth + (width - (highwayX + highwayWidth)) * ((localIdx + 0.5) / (beamCount / 2));
+        const sway = Math.sin(exactBeat * 0.85 + i * 1.2) * 140;
+        const spread = 75 + kickPulse * 65 + (spectrum[i * 2] ?? 0) * 45;
+        const beamCol = laneColors[i % laneColors.length].main;
+
+        ctx.fillStyle = this.hexWithAlpha(
+          beamCol,
+          layerAlpha * ((isLight ? 0.13 : 0.14) + kickPulse * 0.12)
+        );
+        ctx.beginPath();
+        ctx.moveTo(anchorX, -10);
+        ctx.lineTo(anchorX + sway - spread, height + 10);
+        ctx.lineTo(anchorX + sway + spread, height + 10);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Outer wing floating equalizer bars
+      const wingMaxW = Math.max(0, highwayX - 36);
+      if (wingMaxW > 40) {
+        const rows = 12;
+        const rowStep = (height - 140) / rows;
+        for (let r = 0; r < rows; r++) {
+          const band = spectrum[r % spectrum.length] ?? 0;
+          const barLen = Math.max(12, wingMaxW * (0.14 + band * 0.74));
+          const y = 76 + r * rowStep;
+          const barCol = r % 2 === 0 ? colA : colB;
+          ctx.fillStyle = this.hexWithAlpha(
+            barCol,
+            layerAlpha * ((isLight ? 0.24 : 0.28) + band * 0.25)
+          );
+          this.roundRectPath(18, y, barLen, Math.max(8, rowStep * 0.54), 6);
+          ctx.fill();
+          this.roundRectPath(width - 18 - barLen, y, barLen, Math.max(8, rowStep * 0.54), 6);
+          ctx.fill();
+        }
+      }
+    } else if (mode === 2) {
+      // PATTERN 2: Kaleidoscope Prism / Diamond Wave Grid across both side wings
+      const cell = 76;
+      const cols = Math.ceil(width / cell) + 1;
+      const rows = Math.ceil(height / cell) + 1;
+      for (let gx = 0; gx < cols; gx++) {
+        const x = gx * cell + (gx % 2 === 0 ? 0 : 0);
+        // Keep central highway clean
+        if (x > highwayX - 18 && x < highwayX + highwayWidth + 18) continue;
+        for (let gy = 0; gy < rows; gy++) {
+          const y = gy * cell;
+          const dist = Math.hypot(x - cx, y - cy) / 140;
+          const wave = 0.5 + 0.5 * Math.sin(exactBeat * Math.PI - dist * 1.35);
+          const band = spectrum[(gx + gy) % spectrum.length] ?? 0;
+          const size = 8 + wave * 16 + band * 12 + kickPulse * 6;
+          const palCol = laneColors[(gx + gy + Math.floor(exactBeat)) % laneColors.length].main;
+          const alpha = layerAlpha * ((isLight ? 0.16 : 0.2) + wave * 0.18);
+
+          ctx.fillStyle = this.hexWithAlpha(palCol, alpha);
+          ctx.strokeStyle = this.hexWithAlpha(colC, alpha * 0.9);
+          ctx.lineWidth = 2;
+          this.regularPolygonPath(x, y, size, 4, exactBeat * 0.35 + dist * 0.2);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
     } else {
-      ctx.fillStyle = headPal === LIGHT_IDLE_PALETTE ? '#1E2636' : '#FFFFFF';
-      this.roundRectPath(-15, headY - 7, 10, 12, 5);
-      ctx.fill();
-      this.roundRectPath(5, headY - 7, 10, 12, 5);
-      ctx.fill();
+      // PATTERN 3: Rotating Concert Sunburst Rays & Rising Beat Bokeh Orbs
+      const rayCount = 16;
+      const outerR = Math.hypot(width, height) * 0.75;
+      const baseRot = exactBeat * 0.18;
+      for (let i = 0; i < rayCount; i++) {
+        if (i % 2 !== 0) continue;
+        const a0 = baseRot + (i / rayCount) * Math.PI * 2;
+        const a1 = baseRot + ((i + 0.55 + kickPulse * 0.25) / rayCount) * Math.PI * 2;
+        const rayCol = i % 4 === 0 ? colA : colB;
+        ctx.fillStyle = this.hexWithAlpha(
+          rayCol,
+          layerAlpha * ((isLight ? 0.11 : 0.13) + midPulse * 0.12 + beatSnap * 0.06)
+        );
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a0) * outerR, cy + Math.sin(a0) * outerR);
+        ctx.lineTo(cx + Math.cos(a1) * outerR, cy + Math.sin(a1) * outerR);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Rising beat-pulsing neon rings on the left & right wings
+      const orbCount = 18;
+      for (let i = 0; i < orbCount; i++) {
+        const isLeft = i % 2 === 0;
+        const wingW = Math.max(40, highwayX - 30);
+        const seed = (i * 0.6180339887) % 1;
+        const ox = isLeft
+          ? 20 + seed * wingW
+          : highwayX + highwayWidth + 10 + seed * wingW;
+        const speed = 75 + (i % 5) * 28;
+        const oy = height + 40 - (((exactBeat * speed + i * 95) % (height + 80)) + height + 80) % (height + 80);
+        const band = spectrum[i % spectrum.length] ?? 0;
+        const r = Math.max(6, 12 + (i % 4) * 6 + band * 16 + highPulse * 8);
+        const orbCol = laneColors[i % laneColors.length].main;
+
+        ctx.fillStyle = this.hexWithAlpha(orbCol, layerAlpha * (isLight ? 0.2 : 0.24));
+        ctx.strokeStyle = this.hexWithAlpha(orbCol, layerAlpha * 0.48);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(ox, oy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
     }
 
-    const keysTag = laneCount === 6 ? 'You (SDFJKL)' : 'You (DFJK)';
-    this.drawOutlinedText(keysTag, 0, 22, 14, '#FFFFFF', '#18202E', 4.5);
     ctx.restore();
+  }
+
+  /**
+   * Symmetrical 16-band spectrum equalizer bars hugging the left and right edges of the highway!
+   */
+  private drawHighwayEdgeSpectrum(
+    width: number,
+    height: number,
+    highwayX: number,
+    highwayWidth: number,
+    spectrum: readonly number[],
+    kickPulse: number,
+    isLight: boolean,
+    colA: string,
+    colB: string
+  ): void {
+    const availWing = highwayX - 16;
+    if (availWing < 24 || width < highwayWidth + 60) return;
+
+    const ctx = this.ctx;
+    const bandCount = spectrum.length;
+    const topStart = 88;
+    const bottomEnd = height - 92;
+    const spanH = Math.max(120, bottomEnd - topStart);
+    const slotH = spanH / bandCount;
+    const barH = Math.max(6, slotH * 0.66);
+    const maxBarW = Math.min(130, availWing * 0.52);
+
+    ctx.save();
+    for (let i = 0; i < bandCount; i++) {
+      // Put punchy bass near the bottom receptor zone and sparkling highs near the top!
+      const val = spectrum[bandCount - 1 - i] ?? 0;
+      const w = Math.max(6, val * maxBarW + kickPulse * 10);
+      const y = topStart + i * slotH;
+      const t = i / Math.max(1, bandCount - 1);
+      const col = this.lerpHex(colB, colA, t);
+      const alpha = (isLight ? 0.34 : 0.42) * (0.35 + val * 0.65);
+
+      ctx.fillStyle = this.hexWithAlpha(col, alpha);
+      // Left highway wing (growing leftward from highwayX - 8)
+      this.roundRectPath(highwayX - 8 - w, y, w, barH, barH / 2);
+      ctx.fill();
+      // Right highway wing (growing rightward from highwayX + highwayWidth + 8)
+      this.roundRectPath(highwayX + highwayWidth + 8, y, w, barH, barH / 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  private regularPolygonPath(
+    cx: number,
+    cy: number,
+    radius: number,
+    sides: number,
+    rotationRad = 0
+  ): void {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    if (radius <= 0 || sides < 3) return;
+    for (let i = 0; i < sides; i++) {
+      const a = rotationRad + (i / sides) * Math.PI * 2;
+      const px = cx + Math.cos(a) * radius;
+      const py = cy + Math.sin(a) * radius;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
   }
 
   private drawHighwayTrack(
@@ -1094,6 +1260,7 @@ export class GameRenderer {
     const ctx = this.ctx;
     const barW = laneWidth - 14;
     const maxFutureSec = (receptorY + 60) / scrollSpeed;
+    const trackBottomY = height - 62;
 
     for (const note of notes) {
       if (note.time - songTime > maxFutureSec) break;
@@ -1105,14 +1272,14 @@ export class GameRenderer {
 
       const lowestY = Math.max(headY, tailY);
       const highestY = Math.min(headY, tailY);
-      if (lowestY < -50 || highestY > height) continue;
+      if (lowestY < -50 || highestY > trackBottomY) continue;
 
       const pal = laneColors[note.lane] ?? laneColors[0];
       const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
 
       // 1. Glossy vertical Hold Sustain Trail
       if (note.duration > 0) {
-        const clampBottomY = note.holding ? receptorY : Math.min(headY, height);
+        const clampBottomY = note.holding ? receptorY : Math.min(headY, trackBottomY);
         const topY = Math.max(-25, tailY);
         const trailH = clampBottomY - topY;
         if (trailH >= 4) {
@@ -1126,7 +1293,7 @@ export class GameRenderer {
       }
 
       // 2. Glossy 3D Falling Note in User's Chosen Shape & Palette!
-      if (!note.hit) {
+      if (!note.hit && headY <= trackBottomY) {
         ctx.save();
         if (note.missed) {
           ctx.globalAlpha = 0.38;
@@ -1381,8 +1548,7 @@ export class GameRenderer {
       );
     }
 
-    this.drawJellyPill(splitX - 24, hbY - 4, 24, 28, 12, BERRY_JAM_PALETTE, 3, true);
-    this.drawJellyPill(splitX + 2, hbY - 4, 24, 28, 12, playerHudPal, 3, true);
+    this.drawJellyPill(splitX - 8, hbY - 4, 16, 28, 8, idlePal, 3, true);
 
     const summary = `Score: ${stats.score.toLocaleString()}   •   Misses: ${
       stats.counts.MISS + stats.counts.SPAM
@@ -1423,12 +1589,34 @@ export class GameRenderer {
     ctx.closePath();
   }
 
-  private hexWithAlpha(hex: string, alpha: number): string {
+  private parseHexRgb(hex: string): [number, number, number] {
     const clean = hex.replace('#', '');
-    const r = parseInt(clean.slice(0, 2), 16);
-    const g = parseInt(clean.slice(2, 4), 16);
-    const b = parseInt(clean.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    return [
+      parseInt(clean.slice(0, 2), 16) || 0,
+      parseInt(clean.slice(2, 4), 16) || 0,
+      parseInt(clean.slice(4, 6), 16) || 0,
+    ];
+  }
+
+  private lerpHex(hexA: string, hexB: string, t: number): string {
+    const [r1, g1, b1] = this.parseHexRgb(hexA);
+    const [r2, g2, b2] = this.parseHexRgb(hexB);
+    const k = Math.max(0, Math.min(1, t));
+    const r = Math.round(r1 + (r2 - r1) * k);
+    const g = Math.round(g1 + (g2 - g1) * k);
+    const b = Math.round(b1 + (b2 - b1) * k);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b
+      .toString(16)
+      .padStart(2, '0')}`;
+  }
+
+  private mixHex(baseHex: string, tintHex: string, amount: number): string {
+    return this.lerpHex(baseHex, tintHex, amount);
+  }
+
+  private hexWithAlpha(hex: string, alpha: number): string {
+    const [r, g, b] = this.parseHexRgb(hex);
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
   }
 
   private formatTime(sec: number): string {

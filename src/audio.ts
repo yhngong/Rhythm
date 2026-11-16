@@ -1,4 +1,11 @@
-import { CreoTrack } from './songs';
+import { CreoTrack, getTrackEnergyAt } from './songs';
+
+export interface MusicVisualFrame {
+  kickPulse: number; // 0..1 sub-bass / kick hit
+  midPulse: number; // 0..1 lead synth / sax / chord energy
+  highPulse: number; // 0..1 hi-hat / snare shimmer
+  spectrum: readonly number[]; // 16 smoothed frequency bands (0..1)
+}
 
 export class FunkAudioEngine {
   private ctx: AudioContext | null = null;
@@ -39,6 +46,9 @@ export class FunkAudioEngine {
   private wallClockZeroPerfSec = 0;
 
   private smoothedBassPulse = 0;
+  private smoothedMidPulse = 0;
+  private smoothedHighPulse = 0;
+  private smoothedSpectrum: number[] = new Array<number>(16).fill(0);
 
   public ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -60,11 +70,12 @@ export class FunkAudioEngine {
 
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 256;
-      this.analyser.smoothingTimeConstant = 0.65;
+      this.analyser.smoothingTimeConstant = 0.68;
       this.freqBins = new Uint8Array(this.analyser.frequencyBinCount);
 
-      this.musicGain.connect(this.analyser);
-      this.analyser.connect(this.masterGain);
+      // Route source -> analyser -> musicGain -> masterGain so visuals react at full strength at any volume!
+      this.analyser.connect(this.musicGain);
+      this.musicGain.connect(this.masterGain);
 
       this.noiseBuffer = this.buildNoiseBuffer(this.ctx);
     }
@@ -186,12 +197,12 @@ export class FunkAudioEngine {
       return;
     }
 
-    if (!this.musicGain) return;
+    if (!this.analyser) return;
 
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.loop = this.endlessMode;
-    src.connect(this.musicGain);
+    src.connect(this.analyser);
     src.onended = () => {
       try {
         src.disconnect();
@@ -388,30 +399,107 @@ export class FunkAudioEngine {
   }
 
   /**
-   * Real-time sub-bass kick pulse extracted directly from Creo's audio via WebAudio AnalyserNode!
+   * Extracts real-time sub-bass, mid-synth, high-hat, and 16-band spectrum data
+   * directly from Creo's audio (with beat-synced fallback if OS audio is unavailable).
    */
-  public getKickPulse(): number {
-    if (!this.ctx || !this.isPlaying || this.isPaused || this.isLoading) return 0;
-
-    const songTime = this.getSongTime();
-    if (songTime < 0 && this.currentTrack) {
-      const beatDur = 60 / this.currentTrack.bpm;
-      const t = songTime + this.leadInSec;
-      const frac = ((t % beatDur) + beatDur) % beatDur;
-      return Math.pow(Math.max(0, 1 - frac / 0.2), 2.2) * 0.65;
+  public getVisualFrame(): MusicVisualFrame {
+    if (!this.isPlaying || this.isPaused || this.isLoading || !this.currentTrack) {
+      for (let i = 0; i < 16; i++) this.smoothedSpectrum[i] *= 0.85;
+      this.smoothedBassPulse *= 0.85;
+      this.smoothedMidPulse *= 0.85;
+      this.smoothedHighPulse *= 0.85;
+      return {
+        kickPulse: this.smoothedBassPulse,
+        midPulse: this.smoothedMidPulse,
+        highPulse: this.smoothedHighPulse,
+        spectrum: this.smoothedSpectrum,
+      };
     }
 
-    if (!this.analyser || !this.freqBins) return 0;
+    const songTime = this.getSongTime();
+    const beatDur = 60 / this.currentTrack.bpm;
+
+    if (songTime < 0 || !this.analyser || !this.freqBins || this.useWallClockFallback) {
+      const t = Math.max(0, songTime + this.leadInSec);
+      const frac = ((t % beatDur) + beatDur) % beatDur;
+      const env = songTime >= 0 ? getTrackEnergyAt(this.currentTrack, songTime % this.currentTrack.durationSec) * 1.8 : 0.45;
+      const pulse = Math.pow(Math.max(0, 1 - frac / (beatDur * 0.55)), 2.0) * Math.min(1, env);
+      this.smoothedBassPulse = pulse * 0.75;
+      this.smoothedMidPulse = 0.25 + 0.35 * Math.abs(Math.sin(t * 2.2));
+      this.smoothedHighPulse = 0.2 + 0.25 * Math.abs(Math.cos(t * 4.4));
+      for (let i = 0; i < 16; i++) {
+        this.smoothedSpectrum[i] =
+          Math.min(1, pulse * (1 - i * 0.035) + 0.22 * Math.abs(Math.sin(t * 3 + i * 0.55)));
+      }
+      return {
+        kickPulse: this.smoothedBassPulse,
+        midPulse: this.smoothedMidPulse,
+        highPulse: this.smoothedHighPulse,
+        spectrum: this.smoothedSpectrum,
+      };
+    }
+
     this.analyser.getByteFrequencyData(this.freqBins);
 
-    // Bins 1..4 (~43 Hz .. 215 Hz) capture Creo's punchy kick & sub-bass!
+    // Sub-bass & kick punch (~43..215 Hz)
     const lowSum =
-      (this.freqBins[1] + this.freqBins[2] * 1.2 + this.freqBins[3] + this.freqBins[4] * 0.6) /
-      3.8;
-    const normalized = Math.max(0, Math.min(1, (lowSum - 135) / 105));
-    const shaped = Math.pow(normalized, 1.8);
-    this.smoothedBassPulse = Math.max(shaped, this.smoothedBassPulse * 0.86);
-    return this.smoothedBassPulse;
+      (this.freqBins[1] + this.freqBins[2] * 1.25 + this.freqBins[3] + this.freqBins[4] * 0.65) /
+      3.9;
+    const bassNorm = Math.pow(Math.max(0, Math.min(1, (lowSum - 125) / 112)), 1.7);
+    this.smoothedBassPulse = Math.max(bassNorm, this.smoothedBassPulse * 0.84);
+
+    // Mid-range synths, sax & chords (~250..2,100 Hz, bins 5..24)
+    let midAcc = 0;
+    for (let b = 5; b <= 24; b++) midAcc += this.freqBins[b];
+    const midNorm = Math.max(0, Math.min(1, (midAcc / 20 - 75) / 135));
+    this.smoothedMidPulse = this.smoothedMidPulse * 0.72 + midNorm * 0.28;
+
+    // High-hats, snares & air (~2,200..9,500 Hz, bins 25..68)
+    let highAcc = 0;
+    for (let b = 25; b <= 68; b++) highAcc += this.freqBins[b];
+    const highNorm = Math.max(0, Math.min(1, (highAcc / 44 - 40) / 125));
+    this.smoothedHighPulse = this.smoothedHighPulse * 0.68 + highNorm * 0.32;
+
+    // 16 quasi-logarithmic spectrum bands across bins 1..84
+    const binRanges: readonly [number, number][] = [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 6],
+      [6, 8],
+      [8, 11],
+      [11, 14],
+      [14, 18],
+      [18, 23],
+      [23, 29],
+      [29, 36],
+      [36, 44],
+      [44, 53],
+      [53, 63],
+      [63, 74],
+      [74, 86],
+    ];
+    for (let i = 0; i < 16; i++) {
+      const [b0, b1] = binRanges[i];
+      let sum = 0;
+      for (let b = b0; b < b1; b++) sum += this.freqBins[b];
+      const avg = sum / Math.max(1, b1 - b0);
+      const floor = Math.max(32, 92 - i * 4);
+      const span = Math.max(95, 145 - i * 2.5);
+      const val = Math.max(0, Math.min(1, (avg - floor) / span));
+      this.smoothedSpectrum[i] = Math.max(val, this.smoothedSpectrum[i] * 0.8);
+    }
+
+    return {
+      kickPulse: this.smoothedBassPulse,
+      midPulse: this.smoothedMidPulse,
+      highPulse: this.smoothedHighPulse,
+      spectrum: this.smoothedSpectrum,
+    };
+  }
+
+  public getKickPulse(): number {
+    return this.getVisualFrame().kickPulse;
   }
 
   /**
