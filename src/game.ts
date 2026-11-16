@@ -313,10 +313,12 @@ export class RhythmGame {
     if (!laneState) return;
     laneState.pressed = true;
 
+    const isUp = this.settings.scrollDirection === 'up';
     const { laneWidth, highwayWidth, highwayX, receptorY } = this.renderer.getHighwayGeometry(
       this.canvas.width,
       this.canvas.height,
-      this.config.laneCount
+      this.config.laneCount,
+      this.settings.scrollDirection
     );
     const laneCenterX = highwayX + lane * laneWidth + laneWidth / 2;
 
@@ -325,7 +327,14 @@ export class RhythmGame {
       this.stats.hp = Math.max(0, this.stats.hp - 2.5);
       laneState.whiffFlash = 1;
       this.audio.playMissSound();
-      this.spawnPopup('Locked!', 'No Spam', '#FF264B', laneCenterX, receptorY - 46, 0.82);
+      this.spawnPopup(
+        'Locked!',
+        'No Spam',
+        '#FF264B',
+        laneCenterX,
+        isUp ? receptorY + 52 : receptorY - 46,
+        0.82
+      );
       this.checkKo();
       return;
     }
@@ -415,7 +424,7 @@ export class RhythmGame {
         timingTag,
         popColor,
         highwayX + highwayWidth / 2,
-        receptorY - 125,
+        isUp ? receptorY + 108 : receptorY - 125,
         judgment === 'SICK' ? 1.08 : 0.94
       );
 
@@ -459,10 +468,24 @@ export class RhythmGame {
       this.laneWhiffTimes[lane] = [];
       this.stats.hp = Math.max(0, this.stats.hp - 5.0);
       this.audio.playSpamJamSound();
-      this.spawnPopup('No Spam!', 'Bar Jammed', '#FF5C7A', laneCenterX, receptorY - 68, 0.95);
+      this.spawnPopup(
+        'No Spam!',
+        'Bar Jammed',
+        '#FF5C7A',
+        laneCenterX,
+        isUp ? receptorY + 68 : receptorY - 68,
+        0.95
+      );
     } else {
       this.audio.playMissSound();
-      this.spawnPopup('Ghost!', '-120 • -HP', '#FF7597', laneCenterX, receptorY - 58, 0.82);
+      this.spawnPopup(
+        'Ghost!',
+        '-120 • -HP',
+        '#FF7597',
+        laneCenterX,
+        isUp ? receptorY + 58 : receptorY - 58,
+        0.82
+      );
     }
 
     this.checkKo();
@@ -648,10 +671,12 @@ export class RhythmGame {
   }
 
   private updatePlayerNotesAndHolds(songTime: number, dt: number): void {
+    const isUp = this.settings.scrollDirection === 'up';
     const { laneWidth, highwayX, receptorY } = this.renderer.getHighwayGeometry(
       this.canvas.width,
       this.canvas.height,
-      this.config.laneCount
+      this.config.laneCount,
+      this.settings.scrollDirection
     );
     const laneCols = getPaletteLanes(this.settings.notePalette, this.config.laneCount);
 
@@ -701,7 +726,7 @@ export class RhythmGame {
         this.audio.playMissSound();
 
         const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
-        this.spawnPopup('Miss!', '', '#FF5C7A', cx, receptorY - 52, 0.88);
+        this.spawnPopup('Miss!', '', '#FF5C7A', cx, isUp ? receptorY + 56 : receptorY - 52, 0.88);
         if (this.checkKo()) return;
       }
     }

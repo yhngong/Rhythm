@@ -518,9 +518,16 @@ body {
   text-shadow: 0 2px 0 #181c24;
 }
 
+.mode-controls-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .mode-toggle {
   display: flex;
-  gap: 8px;
+  gap: 7px;
 }
 
 .jelly-pill-sm {
@@ -889,12 +896,18 @@ body {
   margin-bottom: 10px;
 }
 
+.settings-split-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+  gap: 10px 16px;
+}
+
 .settings-row-inline {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .settings-label {

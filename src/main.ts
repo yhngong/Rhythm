@@ -108,21 +108,25 @@ function selectDifficulty(id: DifficultyId): void {
 }
 
 function renderMenuDemoLanes(): void {
-  const { noteShape, notePalette } = game.settings;
+  const { noteShape, notePalette, scrollDirection } = game.settings;
   const activeLaneCount = DIFFICULTIES[selectedDiff]?.laneCount ?? 4;
   const lanes = getPaletteLanes(notePalette, activeLaneCount);
   const labels = getLaneLabels(activeLaneCount);
   const arrowGlyphs = activeLaneCount === 6 ? ARROW_DEMO_GLYPHS_6 : ARROW_DEMO_GLYPHS_4;
+  const scrollWord = scrollDirection === 'up' ? 'UPSCROLL' : 'DOWNSCROLL';
 
   if (heroPillTag) {
     heroPillTag.textContent =
-      activeLaneCount === 6 ? '6-KEY MANIA DOWNSCROLL FUNK' : '4-KEY DOWNSCROLL BAR FUNK';
+      activeLaneCount === 6
+        ? `6-KEY MANIA ${scrollWord} FUNK`
+        : `4-KEY ${scrollWord} BAR FUNK`;
   }
   if (heroSubtitle) {
+    const verb = scrollDirection === 'up' ? 'rising' : 'falling';
     heroSubtitle.innerHTML =
       activeLaneCount === 6
-        ? 'Catch randomized 6-lane notes with <strong>S &middot; D &middot; F &middot; J &middot; K &middot; L</strong>'
-        : 'Catch randomized falling notes with <strong>D &middot; F &middot; J &middot; K</strong>';
+        ? `Catch randomized 6-lane ${verb} notes with <strong>S &middot; D &middot; F &middot; J &middot; K &middot; L</strong>`
+        : `Catch randomized ${verb} notes with <strong>D &middot; F &middot; J &middot; K</strong>`;
   }
 
   menuDemoLanes.classList.toggle('lanes-6', activeLaneCount === 6);
@@ -195,6 +199,13 @@ function syncSettingsUi(): void {
     btn.classList.toggle('theme-slate', !isActive);
   });
 
+  // Scroll direction buttons (both on Main Menu and inside Settings!)
+  document.querySelectorAll<HTMLButtonElement>('.scroll-dir-btn').forEach((btn) => {
+    const isActive = btn.dataset.scrollDir === s.scrollDirection;
+    btn.classList.toggle('theme-cyan', isActive);
+    btn.classList.toggle('theme-slate', !isActive);
+  });
+
   // Shape grid
   shapeGrid.innerHTML = '';
   for (const opt of NOTE_SHAPE_OPTIONS) {
@@ -241,9 +252,10 @@ function syncSettingsUi(): void {
   // Preview summary label
   const shapeObj = NOTE_SHAPE_OPTIONS.find((o) => o.id === s.noteShape);
   const palObj = NOTE_PALETTES[s.notePalette];
-  previewSummaryTag.textContent = `${activeLaneCount}K • ${shapeObj?.name ?? 'Glossy Bar'} • ${
-    palObj?.name ?? 'Candy Classic'
-  }`;
+  const dirLabel = s.scrollDirection === 'up' ? 'Upscroll' : 'Downscroll';
+  previewSummaryTag.textContent = `${activeLaneCount}K ${dirLabel} • ${
+    shapeObj?.name ?? 'Glossy Bar'
+  } • ${palObj?.name ?? 'Candy Classic'}`;
 
   // Volume sliders
   const masterPct = Math.round(s.masterVolume * 100);
@@ -280,6 +292,16 @@ document.querySelectorAll<HTMLButtonElement>('.theme-mode-btn').forEach((btn) =>
   btn.addEventListener('click', () => {
     const mode = btn.dataset.themeMode === 'light' ? 'light' : 'dark';
     game.updateSettings({ themeMode: mode });
+    game.audio.playUiSelect();
+    syncSettingsUi();
+  });
+});
+
+// Scroll direction toggle buttons (Main Menu & Settings Modal)
+document.querySelectorAll<HTMLButtonElement>('.scroll-dir-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const dir = btn.dataset.scrollDir === 'up' ? 'up' : 'down';
+    game.updateSettings({ scrollDirection: dir });
     game.audio.playUiSelect();
     syncSettingsUi();
   });

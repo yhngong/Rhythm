@@ -109,16 +109,26 @@
           </div>
         </div>
 
-        <!-- Mode Selector Row -->
+        <!-- Mode & Scroll Direction Selector Row -->
         <div class="mode-row">
           <span class="section-title">Pick Difficulty</span>
-          <div class="mode-toggle" role="group" aria-label="Game Mode">
-            <button class="mode-btn jelly-pill-sm theme-green active" data-mode="stage">
-              <span class="shine-dots mini"></span>Stage Battle
-            </button>
-            <button class="mode-btn jelly-pill-sm theme-slate" data-mode="endless">
-              <span class="shine-dots mini"></span>Endless
-            </button>
+          <div class="mode-controls-wrap">
+            <div class="mode-toggle" role="group" aria-label="Scroll Direction">
+              <button class="scroll-dir-btn jelly-pill-sm theme-cyan" data-scroll-dir="down">
+                <span class="shine-dots mini"></span>⬇ Downscroll
+              </button>
+              <button class="scroll-dir-btn jelly-pill-sm theme-slate" data-scroll-dir="up">
+                <span class="shine-dots mini"></span>⬆ Upscroll
+              </button>
+            </div>
+            <div class="mode-toggle" role="group" aria-label="Game Mode">
+              <button class="mode-btn jelly-pill-sm theme-green active" data-mode="stage">
+                <span class="shine-dots mini"></span>Stage Battle
+              </button>
+              <button class="mode-btn jelly-pill-sm theme-slate" data-mode="endless">
+                <span class="shine-dots mini"></span>Endless
+              </button>
+            </div>
           </div>
         </div>
 
@@ -331,16 +341,27 @@
           <canvas id="settings-preview-canvas" width="480" height="96"></canvas>
         </div>
 
-        <!-- 1. Theme Mode: Dark or Light -->
-        <div class="settings-section">
+        <!-- 1. Scroll Direction & Theme Mode -->
+        <div class="settings-section settings-split-section">
           <div class="settings-row-inline">
-            <span class="settings-label">Appearance</span>
+            <span class="settings-label">Scroll</span>
+            <div class="mode-toggle" role="group" aria-label="Scroll Direction">
+              <button class="scroll-dir-btn jelly-pill-sm theme-cyan" data-scroll-dir="down">
+                <span class="shine-dots mini"></span>⬇ Downscroll
+              </button>
+              <button class="scroll-dir-btn jelly-pill-sm theme-slate" data-scroll-dir="up">
+                <span class="shine-dots mini"></span>⬆ Upscroll
+              </button>
+            </div>
+          </div>
+          <div class="settings-row-inline">
+            <span class="settings-label">Theme</span>
             <div class="mode-toggle" role="group" aria-label="Theme Mode">
               <button class="theme-mode-btn jelly-pill-sm theme-green" data-theme-mode="dark">
-                <span class="shine-dots mini"></span>🌙 Dark Mode
+                <span class="shine-dots mini"></span>🌙 Dark
               </button>
               <button class="theme-mode-btn jelly-pill-sm theme-slate" data-theme-mode="light">
-                <span class="shine-dots mini"></span>☀️ Light Mode
+                <span class="shine-dots mini"></span>☀️ Light
               </button>
             </div>
           </div>

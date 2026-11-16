@@ -18,7 +18,8 @@ Official links: [creo-music.com](https://creo-music.com) · [Creo on Newgrounds]
 - **Random Song Selection & Music-Synced Visualizer Across 4 Creo Tracks**:
   - Every run randomly selects one of Creo's 4 songs and generates a fresh 4-key or 6-key chart locked to that song's exact BPM, beat offset, and audio energy envelope.
   - Full-screen WebAudio spectrum & beat-synced visualizer background that shifts colors on every beat/measure and cycles through 4 geometric pattern modes (polygon shockwaves, concert laser equalizers, kaleidoscope diamond waves, and sunburst bokeh rays) on musical phrase changes.
-- **4-Key & 6-Key Downscroll Highways (`D F J K` & `S D F J K L`)**:
+- **Downscroll or Upscroll + 4K & 6K Highways (`D F J K` & `S D F J K L`)**:
+  - Toggle freely between **Downscroll** (mania style, receptors at bottom) and **Upscroll** (classic FNF style, receptors at top) right from the Main Menu or Settings modal.
   - **4-Key Difficulties**: **Easy**, **Normal**, **Hard**, and **Insane** (`D · F · J · K`).
   - **6-Key Difficulties**: **Psychopath (6 Keys)** and **Impossible (6 Keys)** (`S · D · F · J · K · L`) featuring full 6-lane sweeping stairs, split-hand trills, and triple-bar chords.
   - Playable in both **Stage Battle** and **Endless** modes.

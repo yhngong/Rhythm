@@ -6,6 +6,7 @@ import {
   getPaletteLanes,
   LaneColorSpec,
   NoteShape,
+  ScrollDirection,
   ThemeMode,
 } from './settings';
 import {
@@ -118,7 +119,12 @@ export class GameRenderer {
     return getPaletteLanes(settings.notePalette, laneCount);
   }
 
-  public getHighwayGeometry(width: number, height: number, laneCount: LaneCount = 4) {
+  public getHighwayGeometry(
+    width: number,
+    height: number,
+    laneCount: LaneCount = 4,
+    scrollDirection: ScrollDirection = 'down'
+  ) {
     const maxTotalW = Math.max(240, width - 32);
     const idealLaneW =
       laneCount === 6
@@ -127,7 +133,7 @@ export class GameRenderer {
     const laneWidth = Math.min(idealLaneW, Math.floor(maxTotalW / laneCount));
     const highwayWidth = laneWidth * laneCount;
     const highwayX = Math.floor((width - highwayWidth) / 2);
-    const receptorY = height - 140;
+    const receptorY = scrollDirection === 'up' ? 128 : height - 140;
     return { laneWidth, highwayWidth, highwayX, receptorY };
   }
 
@@ -182,9 +188,10 @@ export class GameRenderer {
     }
     ctx.restore();
 
-    // Floating glossy 3D custom notes gently scrolling downward in the background
+    // Floating glossy 3D custom notes scrolling downward or upward in the background
     const cols = 8;
     const colW = width / cols;
+    const isUp = settings.scrollDirection === 'up';
     ctx.save();
     ctx.globalAlpha = isLight ? 0.34 : 0.28;
     for (let i = 0; i < 18; i++) {
@@ -192,7 +199,9 @@ export class GameRenderer {
       const cx = ((i * 3) % cols) * colW + colW * 0.5;
       const w = Math.min(92, colW * 0.72);
       const speed = 110 + (i % 5) * 35;
-      const cy = ((timeSec * speed + i * 135) % (height + 90)) - 45;
+      const span = height + 90;
+      const offset = ((timeSec * speed + i * 135) % span + span) % span;
+      const cy = isUp ? height + 45 - offset : offset - 45;
       this.drawNoteUnit(
         cx,
         cy,
@@ -209,7 +218,7 @@ export class GameRenderer {
   }
 
   /**
-   * Renders a live animated 4-lane or 6-lane preview strip inside the Settings modal!
+   * Renders a live animated 4-lane or 6-lane preview strip (Downscroll or Upscroll) inside Settings!
    */
   public static renderSettingsPreview(
     previewCanvas: HTMLCanvasElement,
@@ -225,6 +234,7 @@ export class GameRenderer {
 
     const helper = new GameRenderer(previewCanvas);
     const isLight = settings.themeMode === 'light';
+    const isUp = settings.scrollDirection === 'up';
     const laneColors = helper.getLaneColors(settings, laneCount);
     const idlePal = helper.getIdlePalette(settings.themeMode);
 
@@ -233,7 +243,7 @@ export class GameRenderer {
     pCtx.fillRect(0, 0, width, height);
 
     const laneW = width / laneCount;
-    const receptorY = height - 30;
+    const receptorY = isUp ? 30 : height - 30;
 
     for (let i = 0; i < laneCount; i++) {
       if (i % 2 === 1) {
@@ -250,13 +260,15 @@ export class GameRenderer {
       }
     }
 
-    // Animated falling notes + receptors across the 4 or 6 lanes
+    // Animated falling or rising notes + receptors across the 4 or 6 lanes
     for (let i = 0; i < laneCount; i++) {
       const laneIdx = i as LaneIndex;
       const cx = i * laneW + laneW / 2;
       const col = laneColors[laneIdx];
       const cycle = (((timeSec * 0.95 + i * (1 / laneCount)) % 1) + 1) % 1;
-      const noteY = -18 + cycle * (receptorY + 18);
+      const noteY = isUp
+        ? height + 18 - cycle * (height + 18 - receptorY)
+        : -18 + cycle * (receptorY + 18);
       const justHit = Math.abs(noteY - receptorY) < 11;
 
       if (justHit) {
@@ -284,7 +296,8 @@ export class GameRenderer {
         );
       }
 
-      if (noteY < receptorY - 6) {
+      const stillTravelling = isUp ? noteY > receptorY + 6 : noteY < receptorY - 6;
+      if (stillTravelling) {
         helper.drawNoteUnit(
           cx,
           noteY,
@@ -305,11 +318,13 @@ export class GameRenderer {
     if (width <= 0 || height <= 0) return;
     const ctx = this.ctx;
     const laneCount = difficulty.laneCount;
+    const scrollDir = settings.scrollDirection;
     const laneColors = this.getLaneColors(settings, laneCount);
     const { laneWidth, highwayWidth, highwayX, receptorY } = this.getHighwayGeometry(
       width,
       height,
-      laneCount
+      laneCount,
+      scrollDir
     );
 
     ctx.save();
@@ -344,12 +359,13 @@ export class GameRenderer {
         songTime,
         state.currentBpm,
         difficulty.scrollSpeed,
+        scrollDir,
         state.lanes,
         settings.themeMode,
         laneColors
       );
 
-      // 4. Glossy 3D Custom Falling Notes & Sustain Ribbons
+      // 3. Glossy 3D Custom Falling / Rising Notes & Sustain Ribbons
       this.drawFallingNoteBars(
         state.notes,
         highwayX,
@@ -359,16 +375,18 @@ export class GameRenderer {
         receptorY,
         songTime,
         difficulty.scrollSpeed,
+        scrollDir,
         settings.noteShape,
         laneColors
       );
 
-      // 5. Glossy 3D Catcher Receptors + Squircle Keycap Buttons (DFJK or SDFJKL)
+      // 4. Glossy 3D Catcher Receptors + Squircle Keycap Buttons (DFJK or SDFJKL)
       this.drawReceptorBars(
         highwayX,
         laneWidth,
         laneCount,
         receptorY,
+        scrollDir,
         state.lanes,
         settings.noteShape,
         settings.themeMode,
@@ -1152,25 +1170,29 @@ export class GameRenderer {
     songTime: number,
     bpm: number,
     scrollSpeed: number,
+    scrollDirection: ScrollDirection,
     lanes: LaneVisualState[],
     theme: ThemeMode,
     laneColors: readonly LaneColorSpec[]
   ): void {
     const ctx = this.ctx;
     const isLight = theme === 'light';
-    const trackH = height - 52;
+    const isUp = scrollDirection === 'up';
+    const trackTopY = isUp ? 54 : 0;
+    const trackBottomY = height - 52;
+    const trackH = Math.max(40, trackBottomY - trackTopY);
 
     ctx.fillStyle = isLight ? '#C7D5EA' : '#181C23';
-    ctx.fillRect(highwayX - 4, 0, highwayWidth + 8, trackH);
+    ctx.fillRect(highwayX - 4, trackTopY, highwayWidth + 8, trackH);
 
     ctx.fillStyle = isLight ? '#E2EBF8' : '#1E232C';
-    ctx.fillRect(highwayX, 0, highwayWidth, trackH);
+    ctx.fillRect(highwayX, trackTopY, highwayWidth, trackH);
 
     for (let i = 0; i < laneCount; i++) {
       const lx = highwayX + i * laneWidth;
       if (i % 2 === 1) {
         ctx.fillStyle = isLight ? 'rgba(25, 45, 80, 0.035)' : 'rgba(255, 255, 255, 0.018)';
-        ctx.fillRect(lx, 0, laneWidth, trackH);
+        ctx.fillRect(lx, trackTopY, laneWidth, trackH);
       }
 
       const st = lanes[i];
@@ -1178,35 +1200,42 @@ export class GameRenderer {
       if (!st) continue;
 
       if (st.jamRemainingSec > 0) {
-        const grad = ctx.createLinearGradient(0, receptorY - 240, 0, receptorY + 25);
+        const y0 = isUp ? receptorY - 25 : receptorY - 240;
+        const y1 = isUp ? receptorY + 240 : receptorY + 25;
+        const grad = ctx.createLinearGradient(0, isUp ? y1 : y0, 0, isUp ? y0 : y1);
         grad.addColorStop(0, 'rgba(255, 46, 91, 0)');
         grad.addColorStop(1, 'rgba(255, 46, 91, 0.3)');
         ctx.fillStyle = grad;
-        ctx.fillRect(lx, receptorY - 240, laneWidth, 265);
+        ctx.fillRect(lx, y0, laneWidth, 265);
       } else if (st.pressed || st.hitFlash > 0.02) {
         const intensity = Math.max(st.pressed ? 0.16 : 0, st.hitFlash * 0.3);
-        const grad = ctx.createLinearGradient(0, receptorY - 280, 0, receptorY + 20);
+        const y0 = isUp ? receptorY - 20 : receptorY - 280;
+        const y1 = isUp ? receptorY + 280 : receptorY + 20;
+        const grad = ctx.createLinearGradient(0, isUp ? y1 : y0, 0, isUp ? y0 : y1);
         grad.addColorStop(0, 'rgba(0,0,0,0)');
         grad.addColorStop(1, this.hexWithAlpha(col.main, intensity));
         ctx.fillStyle = grad;
-        ctx.fillRect(lx, receptorY - 280, laneWidth, 300);
+        ctx.fillRect(lx, y0, laneWidth, 300);
       }
 
       if (st.whiffFlash > 0.02) {
         ctx.fillStyle = `rgba(255, 46, 91, ${st.whiffFlash * 0.25})`;
-        ctx.fillRect(lx, receptorY - 140, laneWidth, 170);
+        ctx.fillRect(lx, isUp ? receptorY - 30 : receptorY - 140, laneWidth, 170);
       }
     }
 
     const secPerBeat = 60 / bpm;
     const firstBeat = Math.floor((songTime - 0.3) / secPerBeat);
-    const maxVisibleTime = songTime + (receptorY + 40) / scrollSpeed;
+    const travelPx = isUp ? trackBottomY - receptorY + 40 : receptorY + 40;
+    const maxVisibleTime = songTime + Math.max(80, travelPx) / scrollSpeed;
     const lastBeat = Math.ceil(maxVisibleTime / secPerBeat);
 
     for (let b = firstBeat; b <= lastBeat; b++) {
       const beatTime = b * secPerBeat;
-      const y = receptorY - (beatTime - songTime) * scrollSpeed;
-      if (y < -10 || y > trackH - 8) continue;
+      const y = isUp
+        ? receptorY + (beatTime - songTime) * scrollSpeed
+        : receptorY - (beatTime - songTime) * scrollSpeed;
+      if (y < trackTopY + 6 || y > trackBottomY - 8) continue;
 
       const isMeasure = b % 4 === 0;
       ctx.strokeStyle = isLight
@@ -1235,14 +1264,19 @@ export class GameRenderer {
         : 'rgba(255, 255, 255, 0.08)';
       ctx.lineWidth = isCenterSplit ? 2.8 : 2;
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, trackH);
+      ctx.moveTo(x, trackTopY);
+      ctx.lineTo(x, trackBottomY);
       ctx.stroke();
     }
 
     ctx.strokeStyle = isLight ? '#AEBED9' : '#384152';
     ctx.lineWidth = 4;
-    ctx.strokeRect(highwayX - 2, -4, highwayWidth + 4, trackH + 4);
+    ctx.strokeRect(
+      highwayX - 2,
+      isUp ? trackTopY : -4,
+      highwayWidth + 4,
+      isUp ? trackH : trackH + 4
+    );
   }
 
   private drawFallingNoteBars(
@@ -1254,46 +1288,62 @@ export class GameRenderer {
     receptorY: number,
     songTime: number,
     scrollSpeed: number,
+    scrollDirection: ScrollDirection,
     noteShape: NoteShape,
     laneColors: readonly LaneColorSpec[]
   ): void {
     const ctx = this.ctx;
+    const isUp = scrollDirection === 'up';
     const barW = laneWidth - 14;
-    const maxFutureSec = (receptorY + 60) / scrollSpeed;
+    const trackTopY = isUp ? 58 : -25;
     const trackBottomY = height - 62;
+    const travelDist = isUp ? trackBottomY - receptorY + 60 : receptorY + 60;
+    const maxFutureSec = Math.max(100, travelDist) / scrollSpeed;
 
     for (const note of notes) {
       if (note.time - songTime > maxFutureSec) break;
       if (note.hit && (note.duration === 0 || note.holdCompleted)) continue;
 
-      const headY = receptorY - (note.time - songTime) * scrollSpeed;
+      const headY = isUp
+        ? receptorY + (note.time - songTime) * scrollSpeed
+        : receptorY - (note.time - songTime) * scrollSpeed;
       const endTime = note.time + note.duration;
-      const tailY = receptorY - (endTime - songTime) * scrollSpeed;
+      const tailY = isUp
+        ? receptorY + (endTime - songTime) * scrollSpeed
+        : receptorY - (endTime - songTime) * scrollSpeed;
 
       const lowestY = Math.max(headY, tailY);
       const highestY = Math.min(headY, tailY);
-      if (lowestY < -50 || highestY > trackBottomY) continue;
+      if (lowestY < trackTopY - 25 || highestY > trackBottomY) continue;
 
       const pal = laneColors[note.lane] ?? laneColors[0];
       const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
 
       // 1. Glossy vertical Hold Sustain Trail
       if (note.duration > 0) {
-        const clampBottomY = note.holding ? receptorY : Math.min(headY, trackBottomY);
-        const topY = Math.max(-25, tailY);
-        const trailH = clampBottomY - topY;
+        const ribbonTopY = isUp
+          ? note.holding
+            ? receptorY
+            : Math.max(trackTopY, headY)
+          : Math.max(trackTopY, tailY);
+        const ribbonBottomY = isUp
+          ? Math.min(trackBottomY, tailY)
+          : note.holding
+          ? receptorY
+          : Math.min(headY, trackBottomY);
+        const trailH = ribbonBottomY - ribbonTopY;
         if (trailH >= 4) {
           const ribbonW = Math.max(18, Math.floor(barW * 0.42));
           const rx = cx - ribbonW / 2;
           ctx.save();
           ctx.globalAlpha = note.missed || note.holdReleasedEarly ? 0.32 : 0.92;
-          this.drawJellyPill(rx, topY, ribbonW, trailH, 10, pal, 3, false);
+          this.drawJellyPill(rx, ribbonTopY, ribbonW, trailH, 10, pal, 3, false);
           ctx.restore();
         }
       }
 
-      // 2. Glossy 3D Falling Note in User's Chosen Shape & Palette!
-      if (!note.hit && headY <= trackBottomY) {
+      // 2. Glossy 3D Note in User's Chosen Shape & Palette!
+      if (!note.hit && headY >= trackTopY && headY <= trackBottomY) {
         ctx.save();
         if (note.missed) {
           ctx.globalAlpha = 0.38;
@@ -1309,6 +1359,7 @@ export class GameRenderer {
     laneWidth: number,
     laneCount: LaneCount,
     receptorY: number,
+    scrollDirection: ScrollDirection,
     lanes: LaneVisualState[],
     noteShape: NoteShape,
     theme: ThemeMode,
@@ -1316,8 +1367,11 @@ export class GameRenderer {
   ): void {
     const idlePal = this.getIdlePalette(theme);
     const labels = getLaneLabels(laneCount);
+    const isUp = scrollDirection === 'up';
     const keyBaseOffset = noteShape === 'bar' ? 22 : 32;
-    const keySize = Math.min(36, Math.max(28, laneWidth - 12));
+    const keySize = isUp
+      ? Math.min(32, Math.max(26, laneWidth - 14))
+      : Math.min(36, Math.max(28, laneWidth - 12));
 
     for (let i = 0; i < laneCount; i++) {
       const laneIdx = i as LaneIndex;
@@ -1346,33 +1400,35 @@ export class GameRenderer {
           5,
           true
         );
-        this.drawOutlinedText('LOCKED!', cx, ry - 26, 11, '#FF8FA6', '#4F0417', 4);
+        this.drawOutlinedText(
+          'LOCKED!',
+          cx,
+          isUp ? ry + 28 : ry - 26,
+          11,
+          '#FF8FA6',
+          '#4F0417',
+          4
+        );
       } else if (st.pressed || st.hitFlash > 0.08) {
         this.drawNoteUnit(rx, ry, laneWidth, laneIdx, laneCount, noteShape, col, lipH, true);
       } else {
         this.drawReceptorSlot(rx, ry, laneWidth, laneIdx, laneCount, noteShape, idlePal, col.main);
       }
 
-      // Mini ui1.png Squircle Keycap Button (DFJK or SDFJKL) below catcher receptor!
+      // Squircle Keycap Button (above receptor in Upscroll, below receptor in Downscroll)
       const keyPressY = st.pressed ? 3 : 0;
       const keyLip = st.pressed ? 2 : 5;
       const keyPal = jammed ? BERRY_JAM_PALETTE : st.pressed ? col : idlePal;
+      const keyY = isUp
+        ? receptorY - (noteShape === 'bar' ? 54 : 62) + keyPressY
+        : receptorY + keyBaseOffset + keyPressY;
 
-      this.drawJellyPill(
-        cx - keySize / 2,
-        receptorY + keyBaseOffset + keyPressY,
-        keySize,
-        keySize,
-        11,
-        keyPal,
-        keyLip,
-        true
-      );
+      this.drawJellyPill(cx - keySize / 2, keyY, keySize, keySize, 10, keyPal, keyLip, true);
       this.drawOutlinedText(
         labels[i] ?? '',
         cx,
-        receptorY + keyBaseOffset + keyPressY + keySize / 2,
-        16,
+        keyY + keySize / 2,
+        isUp ? 15 : 16,
         '#FFFFFF',
         theme === 'light' && !st.pressed && !jammed ? '#24324A' : keyPal.lip,
         4
@@ -1455,6 +1511,7 @@ export class GameRenderer {
     this.drawOutlinedText(timeLabel, width / 2, 46, 13.5, '#FFFFFF', '#18202E', 4.5);
 
     // Opening "Now Playing — Music by Creo" banner during countdown & intro!
+    const isUp = settings.scrollDirection === 'up';
     if (songTime < 3.5) {
       const fadeAlpha = songTime < 2.5 ? 1 : Math.max(0, 1 - (songTime - 2.5));
       const ctx = this.ctx;
@@ -1462,7 +1519,7 @@ export class GameRenderer {
       ctx.globalAlpha = fadeAlpha;
       const badgeW = 290;
       const badgeX = (width - badgeW) / 2;
-      const badgeY = 64;
+      const badgeY = isUp ? height - 96 : 64;
       this.drawJellyPill(badgeX, badgeY, badgeW, 34, 14, laneColors[1], 4, true);
       this.drawOutlinedText(
         `Now Playing: ${state.trackTitle} — Music by ${state.trackArtist}`,
@@ -1476,19 +1533,20 @@ export class GameRenderer {
       ctx.restore();
     }
 
-    // 2. Chunky Bubble Combo Counter
+    // 2. Chunky Bubble Combo Counter (placed opposite the active receptor zone so it never overlaps popups!)
     if (stats.combo >= 3) {
       const comboX = highwayX + highwayWidth / 2;
+      const comboBaseY = isUp ? height - 156 : 118;
       this.drawOutlinedText(
         `${stats.combo}x`,
         comboX,
-        118,
+        comboBaseY,
         40,
         stats.combo >= 25 ? '#FFE44D' : '#FFFFFF',
         '#151920',
         7
       );
-      this.drawOutlinedText('Combo!', comboX, 144, 14, laneColors[0].top, '#151920', 4.5);
+      this.drawOutlinedText('Combo!', comboX, comboBaseY + 26, 14, laneColors[0].top, '#151920', 4.5);
     }
 
     // 3. Anti-Spam Stability Capsule (Top-Right)

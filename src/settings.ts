@@ -6,6 +6,8 @@ export type NotePaletteId = 'candy' | 'neon' | 'pastel' | 'sunset' | 'mono';
 
 export type ThemeMode = 'dark' | 'light';
 
+export type ScrollDirection = 'down' | 'up';
+
 export interface LaneColorSpec {
   top: string;
   main: string;
@@ -19,6 +21,7 @@ export interface LaneColorSpec {
 export interface GameSettings {
   noteShape: NoteShape;
   notePalette: NotePaletteId;
+  scrollDirection: ScrollDirection;
   masterVolume: number; // 0..1
   musicVolume: number; // 0..1
   sfxVolume: number; // 0..1
@@ -30,6 +33,7 @@ export const SETTINGS_STORAGE_KEY = 'rhythm_fnf_dfjk_settings_v1';
 export const DEFAULT_SETTINGS: GameSettings = {
   noteShape: 'bar',
   notePalette: 'candy',
+  scrollDirection: 'down',
   masterVolume: 0.82,
   musicVolume: 0.9,
   sfxVolume: 0.85,
@@ -464,10 +468,12 @@ export function loadSettings(): GameSettings {
         : DEFAULT_SETTINGS.notePalette;
 
     const themeMode: ThemeMode = parsed.themeMode === 'light' ? 'light' : 'dark';
+    const scrollDirection: ScrollDirection = parsed.scrollDirection === 'up' ? 'up' : 'down';
 
     return {
       noteShape,
       notePalette,
+      scrollDirection,
       masterVolume: clamp01(parsed.masterVolume, DEFAULT_SETTINGS.masterVolume),
       musicVolume: clamp01(parsed.musicVolume, DEFAULT_SETTINGS.musicVolume),
       sfxVolume: clamp01(parsed.sfxVolume, DEFAULT_SETTINGS.sfxVolume),
