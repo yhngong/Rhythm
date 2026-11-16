@@ -109,6 +109,24 @@ body {
   --c-stroke: #7a0625;
 }
 
+.theme-violet {
+  --c-top: #c77dff;
+  --c-mid: #9333ea;
+  --c-bot: #6b16b8;
+  --c-lip: #420978;
+  --c-rim: #e4bdff;
+  --c-stroke: #370766;
+}
+
+.theme-crimson {
+  --c-top: #ff5959;
+  --c-mid: #e60026;
+  --c-bot: #9e0018;
+  --c-lip: #59000b;
+  --c-rim: #ffa3a3;
+  --c-stroke: #4d0009;
+}
+
 .theme-slate {
   --c-top: #4b5568;
   --c-mid: #394150;
@@ -304,13 +322,13 @@ body {
 }
 
 .menu-shell {
-  width: min(820px, 100%);
+  width: min(940px, 100%);
   max-height: 95vh;
   overflow-y: auto;
   background: var(--shell-bg);
   border: 3px solid var(--shell-border);
   border-radius: 32px;
-  padding: 24px 28px 26px;
+  padding: 22px 26px 24px;
   box-shadow:
     0 10px 0 var(--shell-lip),
     0 26px 55px var(--shell-shadow),
@@ -384,6 +402,19 @@ body {
   display: flex;
   gap: 10px;
   flex-shrink: 0;
+}
+
+.key-bars-demo.lanes-6 {
+  gap: 7px;
+}
+
+.key-bars-demo.lanes-6 .demo-lane {
+  width: 44px;
+}
+
+.key-bars-demo.lanes-6 .demo-lane kbd {
+  padding: 4px 10px;
+  font-size: 13px;
 }
 
 .demo-lane {
@@ -516,12 +547,12 @@ body {
   box-shadow: 0 1px 0 var(--c-lip);
 }
 
-/* 4 Glossy 3D Difficulty Cards */
+/* 6 Glossy 3D Difficulty Cards (4K & 6K) */
 .difficulty-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .diff-card {
@@ -529,8 +560,8 @@ body {
   text-align: left;
   background: var(--well-bg);
   border: 3px solid var(--card-idle-border);
-  border-radius: 22px;
-  padding: 14px 18px;
+  border-radius: 20px;
+  padding: 13px 15px;
   cursor: pointer;
   box-shadow:
     0 6px 0 var(--well-lip),
@@ -1114,7 +1145,13 @@ body {
   margin-bottom: 12px;
 }
 
-@media (max-width: 680px) {
+@media (max-width: 880px) {
+  .difficulty-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
   .controls-banner {
     flex-direction: column;
     align-items: flex-start;

@@ -1,59 +1,35 @@
-import { DifficultyConfig, DifficultyId } from './types';
+import { DifficultyConfig, DifficultyId, LaneCount } from './types';
 
-export const LANE_KEYS = ['d', 'f', 'j', 'k'] as const;
-export const LANE_LABELS = ['D', 'F', 'J', 'K'] as const;
+export const LANE_KEYS_4 = ['d', 'f', 'j', 'k'] as const;
+export const LANE_LABELS_4 = ['D', 'F', 'J', 'K'] as const;
 
-// Vibrant glossy candy/jelly 3D palette matching ui1.png
-export const LANE_COLORS = [
-  {
-    top: '#6FFF1F',
-    main: '#3CE00E',
-    bottom: '#1EB506',
-    lip: '#127503',
-    glow: '#B2FF78',
-    dark: '#163812',
-    name: 'Lime',
-  }, // D — Signature ui1.png Green!
-  {
-    top: '#5CEEFF',
-    main: '#14C8FF',
-    bottom: '#0695E0',
-    lip: '#045E9C',
-    glow: '#AEF6FF',
-    dark: '#102F45',
-    name: 'Cyan',
-  }, // F
-  {
-    top: '#FFE44D',
-    main: '#FFB30F',
-    bottom: '#ED8200',
-    lip: '#9E4F00',
-    glow: '#FFF099',
-    dark: '#3D290A',
-    name: 'Gold',
-  }, // J
-  {
-    top: '#FF7096',
-    main: '#FF3366',
-    bottom: '#D91147',
-    lip: '#8C082B',
-    glow: '#FFB3C7',
-    dark: '#3D1222',
-    name: 'Berry',
-  }, // K
-] as const;
+export const LANE_KEYS_6 = ['s', 'd', 'f', 'j', 'k', 'l'] as const;
+export const LANE_LABELS_6 = ['S', 'D', 'F', 'J', 'K', 'L'] as const;
+
+// Backwards-compatible aliases for 4K defaults
+export const LANE_KEYS = LANE_KEYS_4;
+export const LANE_LABELS = LANE_LABELS_4;
+
+export function getLaneKeys(laneCount: LaneCount): readonly string[] {
+  return laneCount === 6 ? LANE_KEYS_6 : LANE_KEYS_4;
+}
+
+export function getLaneLabels(laneCount: LaneCount): readonly string[] {
+  return laneCount === 6 ? LANE_LABELS_6 : LANE_LABELS_4;
+}
 
 export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
   easy: {
     id: 'easy',
     name: 'Easy',
     subtitle: 'Chill Groove',
+    laneCount: 4,
     bpm: 120,
     scrollSpeed: 435,
     measures: 32,
     accentColor: '#3CE00E',
-    badgeText: 'Relaxed • 1/4 & 1/8 Bars',
-    description: 'Gentle downward scroll and clean single-bar rhythms synced to a random Creo track.',
+    badgeText: '4 Keys • Relaxed',
+    description: 'Gentle downward scroll and clean 4-key DFJK single rhythms.',
     stepSubdivision: 2,
     baseDensity: 0.34,
     chordChance: 0.0,
@@ -69,12 +45,13 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     id: 'normal',
     name: 'Normal',
     subtitle: "Funkin' Flow",
+    laneCount: 4,
     bpm: 132,
     scrollSpeed: 575,
     measures: 40,
     accentColor: '#14C8FF',
-    badgeText: 'Balanced • Jumps & Holds',
-    description: 'Upbeat syncopated 8th-note grooves, double-bar jumps, and smooth hold trails.',
+    badgeText: '4 Keys • Balanced',
+    description: 'Upbeat syncopated 8th-note grooves, double jumps, and smooth hold trails.',
     stepSubdivision: 4,
     baseDensity: 0.42,
     chordChance: 0.12,
@@ -90,12 +67,13 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     id: 'hard',
     name: 'Hard',
     subtitle: 'Turbo Beat',
+    laneCount: 4,
     bpm: 150,
     scrollSpeed: 720,
     measures: 48,
     accentColor: '#FFB30F',
-    badgeText: 'Fast • 16th Stairs & Chords',
-    description: 'Brisk downward bar streams, rolling DFJK stairs, trills, and tight anti-spam demands.',
+    badgeText: '4 Keys • Fast Stairs',
+    description: 'Brisk downward streams, rolling DFJK stairs, trills, and tight anti-spam.',
     stepSubdivision: 4,
     baseDensity: 0.56,
     chordChance: 0.18,
@@ -111,12 +89,13 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     id: 'insane',
     name: 'Insane',
     subtitle: 'Hyper Boss',
+    laneCount: 4,
     bpm: 165,
     scrollSpeed: 865,
     measures: 56,
     accentColor: '#FF3366',
-    badgeText: 'Extreme • 4K Mania Streams',
-    description: 'High-velocity 16th-note streams, hand-alternating weaves, and intense drop sections.',
+    badgeText: '4 Keys • Mania',
+    description: 'High-velocity 4-key 16th streams, hand-alternating weaves, and heavy drops.',
     stepSubdivision: 4,
     baseDensity: 0.72,
     chordChance: 0.22,
@@ -128,6 +107,59 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     sickHpGain: 2.2,
     goodHpGain: 1.0,
   },
+  psychopath: {
+    id: 'psychopath',
+    name: 'Psychopath',
+    subtitle: '6-Key Frenzy',
+    laneCount: 6,
+    bpm: 175,
+    scrollSpeed: 940,
+    measures: 64,
+    accentColor: '#9333EA',
+    badgeText: '6 Keys • S D F J K L',
+    description: 'Full 6-lane SDFJKL highway! Sweeping 6-key stairs, split trills & chords.',
+    stepSubdivision: 4,
+    baseDensity: 0.82,
+    chordChance: 0.32,
+    tripleChordChance: 0.08,
+    holdChance: 0.14,
+    burstChance: 0.84,
+    minSameLaneSteps: 2,
+    missHpPenalty: 10.2,
+    whiffHpPenalty: 9.8,
+    sickHpGain: 2.1,
+    goodHpGain: 0.95,
+  },
+  impossible: {
+    id: 'impossible',
+    name: 'Impossible',
+    subtitle: '6-Key Godmode',
+    laneCount: 6,
+    bpm: 190,
+    scrollSpeed: 1060,
+    measures: 72,
+    accentColor: '#E60026',
+    badgeText: '6 Keys • GODMODE',
+    description: 'Merciless 6-key SDFJKL bullet streams, triple-note brackets & blazing speed.',
+    stepSubdivision: 4,
+    baseDensity: 0.94,
+    chordChance: 0.44,
+    tripleChordChance: 0.2,
+    holdChance: 0.12,
+    burstChance: 0.95,
+    minSameLaneSteps: 2,
+    missHpPenalty: 11.2,
+    whiffHpPenalty: 10.8,
+    sickHpGain: 2.0,
+    goodHpGain: 0.85,
+  },
 };
 
-export const DIFFICULTY_ORDER: DifficultyId[] = ['easy', 'normal', 'hard', 'insane'];
+export const DIFFICULTY_ORDER: DifficultyId[] = [
+  'easy',
+  'normal',
+  'hard',
+  'insane',
+  'psychopath',
+  'impossible',
+];

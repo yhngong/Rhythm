@@ -17,10 +17,10 @@ Official links: [creo-music.com](https://creo-music.com) · [Creo on Newgrounds]
 
 - **Random Song Selection Across 4 Creo Tracks**:
   - Every run randomly selects one of Creo's 4 songs and generates a fresh 4-key chart locked to that song's exact BPM, beat offset, and audio energy envelope, with live WebAudio sub-bass speaker & camera pulses.
-- **4-Lane Downscroll Bar Highway (`D` `F` `J` `K`)**:
-  - Glossy 3D horizontal bars and hold-sustain ribbons scroll downward toward the four bottom catcher bars.
-- **Difficulty Selection Menu + Two Modes**:
-  - **Easy**, **Normal**, **Hard**, and **Insane** difficulties in either **Stage Battle** or **Endless** mode.
+- **4-Key & 6-Key Downscroll Highways (`D F J K` & `S D F J K L`)**:
+  - **4-Key Difficulties**: **Easy**, **Normal**, **Hard**, and **Insane** (`D · F · J · K`).
+  - **6-Key Difficulties**: **Psychopath (6 Keys)** and **Impossible (6 Keys)** (`S · D · F · J · K · L`) featuring full 6-lane sweeping stairs, split-hand trills, and triple-bar chords.
+  - Playable in both **Stage Battle** and **Endless** modes.
 - **Strict Anti-Spam Mechanics**:
   - **No Ghost Tapping**: Pressing `D`, `F`, `J`, or `K` with no note in the catch window triggers an immediate **Ghost Whiff** (resets combo, deducts score & health, and lowers accuracy).
   - **OS Key-Repeat Filtering**: Holding a key down never auto-fires extra hits.
@@ -35,8 +35,9 @@ Official links: [creo-music.com](https://creo-music.com) · [Creo on Newgrounds]
 
 | Key | Action |
 | :--- | :--- |
-| `D` `F` `J` `K` | Activate Lanes 1–4 Catcher Bars (tap for normal bars, hold for sustain trails) |
-| `1`–`4` / Arrow Keys | Select Difficulty on Menu |
+| `D` `F` `J` `K` | Activate 4-Key Catcher Receptors (**Easy** – **Insane**) |
+| `S` `D` `F` `J` `K` `L` | Activate 6-Key Catcher Receptors (**Psychopath** & **Impossible**) |
+| `1`–`6` / Arrow Keys | Select Difficulty on Menu |
 | `Enter` / `Space` | Start Selected Track |
 | `Esc` | Pause / Resume |
 | `R` | Quick Retry (randomly selects a Creo song & generates a new chart) |

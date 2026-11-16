@@ -1,9 +1,10 @@
 import './style.css';
-import { DIFFICULTIES, DIFFICULTY_ORDER, LANE_LABELS } from './difficulties';
+import { DIFFICULTIES, DIFFICULTY_ORDER, getLaneLabels } from './difficulties';
 import { RhythmGame } from './game';
 import { GameRenderer } from './renderer';
 import {
   DEFAULT_SETTINGS,
+  getPaletteLanes,
   NOTE_PALETTE_ORDER,
   NOTE_PALETTES,
   NOTE_SHAPE_OPTIONS,
@@ -19,6 +20,8 @@ const resultsScreen = document.getElementById('results-screen') as HTMLDivElemen
 const settingsScreen = document.getElementById('settings-screen') as HTMLDivElement;
 const diffGrid = document.getElementById('difficulty-grid') as HTMLDivElement;
 const menuDemoLanes = document.getElementById('menu-demo-lanes') as HTMLDivElement;
+const heroPillTag = document.getElementById('hero-pill-tag') as HTMLDivElement;
+const heroSubtitle = document.getElementById('hero-subtitle') as HTMLParagraphElement;
 
 const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
 const btnMute = document.getElementById('btn-mute') as HTMLButtonElement;
@@ -58,6 +61,8 @@ const DIFF_THEME_CLASS: Record<DifficultyId, string> = {
   normal: 'theme-cyan',
   hard: 'theme-gold',
   insane: 'theme-berry',
+  psychopath: 'theme-violet',
+  impossible: 'theme-crimson',
 };
 
 const SHAPE_ICONS: Record<NoteShape, string> = {
@@ -67,7 +72,8 @@ const SHAPE_ICONS: Record<NoteShape, string> = {
   arrow: '◀▼▲▶',
 };
 
-const ARROW_DEMO_GLYPHS = ['◀', '▼', '▲', '▶'] as const;
+const ARROW_DEMO_GLYPHS_4 = ['◀', '▼', '▲', '▶'] as const;
+const ARROW_DEMO_GLYPHS_6 = ['◀', '↙', '▼', '▲', '↗', '▶'] as const;
 
 let selectedDiff: DifficultyId = 'normal';
 let selectedMode: GameMode = 'stage';
@@ -94,15 +100,38 @@ function updateMuteUi(muted: boolean): void {
   btnMute.classList.toggle('theme-slate', muted);
 }
 
+function selectDifficulty(id: DifficultyId): void {
+  selectedDiff = id;
+  game.selectedDifficulty = id;
+  renderMenuDemoLanes();
+  renderDifficultyCards();
+}
+
 function renderMenuDemoLanes(): void {
   const { noteShape, notePalette } = game.settings;
-  const lanes = (NOTE_PALETTES[notePalette] ?? NOTE_PALETTES.candy).lanes;
+  const activeLaneCount = DIFFICULTIES[selectedDiff]?.laneCount ?? 4;
+  const lanes = getPaletteLanes(notePalette, activeLaneCount);
+  const labels = getLaneLabels(activeLaneCount);
+  const arrowGlyphs = activeLaneCount === 6 ? ARROW_DEMO_GLYPHS_6 : ARROW_DEMO_GLYPHS_4;
+
+  if (heroPillTag) {
+    heroPillTag.textContent =
+      activeLaneCount === 6 ? '6-KEY MANIA DOWNSCROLL FUNK' : '4-KEY DOWNSCROLL BAR FUNK';
+  }
+  if (heroSubtitle) {
+    heroSubtitle.innerHTML =
+      activeLaneCount === 6
+        ? 'Catch randomized 6-lane notes with <strong>S &middot; D &middot; F &middot; J &middot; K &middot; L</strong>'
+        : 'Catch randomized falling notes with <strong>D &middot; F &middot; J &middot; K</strong>';
+  }
+
+  menuDemoLanes.classList.toggle('lanes-6', activeLaneCount === 6);
   menuDemoLanes.innerHTML = '';
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < activeLaneCount; i++) {
     const col = lanes[i];
     const vars = `--c-top:${col.top};--c-mid:${col.main};--c-bot:${col.bottom};--c-lip:${col.lip};`;
-    const arrowChar = noteShape === 'arrow' ? ARROW_DEMO_GLYPHS[i] : '';
+    const arrowChar = noteShape === 'arrow' ? arrowGlyphs[i] : '';
     const shineHtml =
       noteShape === 'bar' || noteShape === 'circle' ? '<span class="shine-dots mini"></span>' : '';
 
@@ -110,7 +139,7 @@ function renderMenuDemoLanes(): void {
     laneEl.className = 'demo-lane';
     laneEl.innerHTML = `
       <div class="demo-bar shape-${noteShape}" style="${vars}">${shineHtml}${arrowChar}</div>
-      <kbd style="${vars}">${LANE_LABELS[i]}</kbd>
+      <kbd style="${vars}">${labels[i]}</kbd>
     `;
     menuDemoLanes.appendChild(laneEl);
   }
@@ -141,13 +170,12 @@ function renderDifficultyCards(): void {
     `;
 
     card.addEventListener('click', () => {
-      selectedDiff = id;
       game.audio.playUiSelect();
-      renderDifficultyCards();
+      selectDifficulty(id);
     });
 
     card.addEventListener('dblclick', () => {
-      selectedDiff = id;
+      selectDifficulty(id);
       game.startRun(selectedDiff, selectedMode);
     });
 
@@ -187,13 +215,15 @@ function syncSettingsUi(): void {
   }
 
   // Palette grid
+  const activeLaneCount = DIFFICULTIES[selectedDiff]?.laneCount ?? 4;
   paletteGrid.innerHTML = '';
   for (const palId of NOTE_PALETTE_ORDER) {
     const pal = NOTE_PALETTES[palId];
+    const swatchColors = getPaletteLanes(palId, activeLaneCount);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `palette-option-btn${s.notePalette === palId ? ' active' : ''}`;
-    const dotsHtml = pal.lanes
+    const dotsHtml = swatchColors
       .map((c) => `<span class="swatch-dot" style="background:${c.main}"></span>`)
       .join('');
     btn.innerHTML = `
@@ -211,7 +241,9 @@ function syncSettingsUi(): void {
   // Preview summary label
   const shapeObj = NOTE_SHAPE_OPTIONS.find((o) => o.id === s.noteShape);
   const palObj = NOTE_PALETTES[s.notePalette];
-  previewSummaryTag.textContent = `${shapeObj?.name ?? 'Glossy Bar'} • ${palObj?.name ?? 'Candy Classic'}`;
+  previewSummaryTag.textContent = `${activeLaneCount}K • ${shapeObj?.name ?? 'Glossy Bar'} • ${
+    palObj?.name ?? 'Candy Classic'
+  }`;
 
   // Volume sliders
   const masterPct = Math.round(s.masterVolume * 100);
@@ -367,22 +399,22 @@ window.addEventListener('keydown', (e) => {
 
   if (game.state !== 'menu') return;
 
-  if (key === '1' || key === '2' || key === '3' || key === '4') {
-    selectedDiff = DIFFICULTY_ORDER[Number(key) - 1];
-    game.audio.playUiSelect();
-    renderDifficultyCards();
+  if (key >= '1' && key <= '6') {
+    const picked = DIFFICULTY_ORDER[Number(key) - 1];
+    if (picked) {
+      game.audio.playUiSelect();
+      selectDifficulty(picked);
+    }
   } else if (key === 'arrowright' || key === 'arrowdown') {
     const idx = (DIFFICULTY_ORDER.indexOf(selectedDiff) + 1) % DIFFICULTY_ORDER.length;
-    selectedDiff = DIFFICULTY_ORDER[idx];
     game.audio.playUiSelect();
-    renderDifficultyCards();
+    selectDifficulty(DIFFICULTY_ORDER[idx]);
   } else if (key === 'arrowleft' || key === 'arrowup') {
     const idx =
       (DIFFICULTY_ORDER.indexOf(selectedDiff) - 1 + DIFFICULTY_ORDER.length) %
       DIFFICULTY_ORDER.length;
-    selectedDiff = DIFFICULTY_ORDER[idx];
     game.audio.playUiSelect();
-    renderDifficultyCards();
+    selectDifficulty(DIFFICULTY_ORDER[idx]);
   } else if (key === 'enter' || key === ' ') {
     e.preventDefault();
     game.startRun(selectedDiff, selectedMode);
@@ -457,7 +489,8 @@ function loop(now: number): void {
   try {
     game.tick(now);
     if (game.isSettingsOpen) {
-      GameRenderer.renderSettingsPreview(previewCanvas, game.settings, now / 1000);
+      const activeLaneCount = DIFFICULTIES[selectedDiff]?.laneCount ?? 4;
+      GameRenderer.renderSettingsPreview(previewCanvas, game.settings, now / 1000, activeLaneCount);
     }
   } catch (err) {
     console.error('Frame tick error:', err);

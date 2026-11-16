@@ -1,4 +1,14 @@
-export type DifficultyId = 'easy' | 'normal' | 'hard' | 'insane';
+export type DifficultyId =
+  | 'easy'
+  | 'normal'
+  | 'hard'
+  | 'insane'
+  | 'psychopath'
+  | 'impossible';
+
+export type LaneCount = 4 | 6;
+
+export type LaneIndex = 0 | 1 | 2 | 3 | 4 | 5;
 
 export type GameMode = 'stage' | 'endless';
 
@@ -10,6 +20,7 @@ export interface DifficultyConfig {
   id: DifficultyId;
   name: string;
   subtitle: string;
+  laneCount: LaneCount;
   bpm: number;
   scrollSpeed: number; // pixels per second downward
   measures: number; // 4/4 measures in Stage mode
@@ -20,6 +31,7 @@ export interface DifficultyConfig {
   stepSubdivision: 2 | 4; // per beat: 2 = 8th notes, 4 = 16th notes
   baseDensity: number; // probability of note on active subdivision
   chordChance: number; // probability of simultaneous 2-bar jump
+  tripleChordChance?: number; // probability of simultaneous 3-bar chord in 6K modes
   holdChance: number; // probability of sustain bar tail
   burstChance: number; // probability of short 16th stream/stair phrase
   minSameLaneSteps: number; // prevents unfair inhumane single-finger jack spam
@@ -32,7 +44,7 @@ export interface DifficultyConfig {
 
 export interface NoteBar {
   id: number;
-  lane: 0 | 1 | 2 | 3;
+  lane: LaneIndex;
   time: number; // target catch timestamp in seconds
   duration: number; // 0 for tap bar, >0 for hold sustain bar
   midiPitch: number; // musical pitch triggered on hit/playback
@@ -45,7 +57,7 @@ export interface NoteBar {
 }
 
 export interface RivalNote {
-  lane: 0 | 1 | 2 | 3;
+  lane: LaneIndex;
   time: number;
   duration: number;
   midiPitch: number;

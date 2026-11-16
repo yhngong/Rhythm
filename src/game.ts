@@ -1,8 +1,8 @@
 import { FunkAudioEngine } from './audio';
 import { generateChartForTrack } from './chartGenerator';
-import { DIFFICULTIES, LANE_KEYS } from './difficulties';
+import { DIFFICULTIES, getLaneKeys } from './difficulties';
 import { CharacterPose, GameRenderer, LaneVisualState } from './renderer';
-import { GameSettings, loadSettings, NOTE_PALETTES, saveSettings } from './settings';
+import { GameSettings, getPaletteLanes, loadSettings, saveSettings } from './settings';
 import { CREO_TRACKS, CreoTrack, pickRandomCreoTrack } from './songs';
 import {
   DifficultyConfig,
@@ -12,6 +12,7 @@ import {
   HighScoreEntry,
   HitParticle,
   Judgment,
+  LaneIndex,
   NoteBar,
   RivalNote,
   RunStats,
@@ -48,7 +49,7 @@ export class RhythmGame {
 
   private notes: NoteBar[] = [];
   private rivalNotes: RivalNote[] = [];
-  private lanes: LaneVisualState[] = [0, 1, 2, 3].map(() => ({
+  private lanes: LaneVisualState[] = Array.from({ length: 6 }, () => ({
     pressed: false,
     hitFlash: 0,
     whiffFlash: 0,
@@ -56,7 +57,7 @@ export class RhythmGame {
   }));
 
   // Anti-spam tracking
-  private laneWhiffTimes: number[][] = [[], [], [], []];
+  private laneWhiffTimes: number[][] = Array.from({ length: 6 }, () => []);
   private globalWhiffTimes: number[] = [];
   private spamHeat = 0;
 
@@ -174,15 +175,15 @@ export class RhythmGame {
     this.stats = this.freshStats();
     this.popups = [];
     this.particles = [];
-    this.laneWhiffTimes = [[], [], [], []];
+    this.laneWhiffTimes = Array.from({ length: this.config.laneCount }, () => []);
     this.globalWhiffTimes = [];
     this.spamHeat = 0;
-    this.lanes.forEach((l) => {
-      l.pressed = false;
-      l.hitFlash = 0;
-      l.whiffFlash = 0;
-      l.jamRemainingSec = 0;
-    });
+    this.lanes = Array.from({ length: this.config.laneCount }, () => ({
+      pressed: false,
+      hitFlash: 0,
+      whiffFlash: 0,
+      jamRemainingSec: 0,
+    }));
     this.playerPose = { lane: -1, missTimer: 0, poseTimer: 0 };
     this.rivalPose = { lane: -1, missTimer: 0, poseTimer: 0 };
     this.lastCountdownStep = 4;
@@ -283,17 +284,19 @@ export class RhythmGame {
 
       this.audio.resumeContextIfNeeded();
 
-      const laneIdx = LANE_KEYS.indexOf(key as (typeof LANE_KEYS)[number]);
+      const activeKeys = getLaneKeys(this.config.laneCount);
+      const laneIdx = activeKeys.indexOf(key);
       if (laneIdx !== -1) {
         e.preventDefault();
-        this.handleLanePress(laneIdx as 0 | 1 | 2 | 3);
+        this.handleLanePress(laneIdx as LaneIndex);
       }
     });
 
     window.addEventListener('keyup', (e) => {
       const key = e.key.toLowerCase();
-      const laneIdx = LANE_KEYS.indexOf(key as (typeof LANE_KEYS)[number]);
-      if (laneIdx !== -1) {
+      const activeKeys = getLaneKeys(this.config.laneCount);
+      const laneIdx = activeKeys.indexOf(key);
+      if (laneIdx !== -1 && this.lanes[laneIdx]) {
         this.lanes[laneIdx].pressed = false;
       }
     });
@@ -311,14 +314,16 @@ export class RhythmGame {
     });
   }
 
-  private handleLanePress(lane: 0 | 1 | 2 | 3): void {
+  private handleLanePress(lane: LaneIndex): void {
     const songTime = this.audio.getSongTime();
     const laneState = this.lanes[lane];
+    if (!laneState) return;
     laneState.pressed = true;
 
-    const { laneWidth, highwayX, receptorY } = this.renderer.getHighwayGeometry(
+    const { laneWidth, highwayWidth, highwayX, receptorY } = this.renderer.getHighwayGeometry(
       this.canvas.width,
-      this.canvas.height
+      this.canvas.height,
+      this.config.laneCount
     );
     const laneCenterX = highwayX + lane * laneWidth + laneWidth / 2;
 
@@ -417,14 +422,14 @@ export class RhythmGame {
         popText,
         timingTag,
         popColor,
-        highwayX + laneWidth * 2,
+        highwayX + highwayWidth / 2,
         receptorY - 125,
         judgment === 'SICK' ? 1.08 : 0.94
       );
 
       const burstCount = judgment === 'SICK' ? 14 : judgment === 'GOOD' ? 8 : 3;
-      const laneCols = (NOTE_PALETTES[this.settings.notePalette] ?? NOTE_PALETTES.candy).lanes;
-      this.spawnBurst(laneCenterX, receptorY, laneCols[lane].main, burstCount);
+      const laneCols = getPaletteLanes(this.settings.notePalette, this.config.laneCount);
+      this.spawnBurst(laneCenterX, receptorY, (laneCols[lane] ?? laneCols[0]).main, burstCount);
 
       this.checkKo();
       return;
@@ -452,7 +457,7 @@ export class RhythmGame {
     this.playerPose = { lane: -1, missTimer: 0.32, poseTimer: 0 };
 
     const laneMashing = this.laneWhiffTimes[lane].length >= 3;
-    const globalMashing = this.globalWhiffTimes.length >= 5;
+    const globalMashing = this.globalWhiffTimes.length >= (this.config.laneCount === 6 ? 6 : 5);
 
     if (laneMashing || globalMashing) {
       if (globalMashing) {
@@ -535,11 +540,13 @@ export class RhythmGame {
     this.lastFramePerf = nowPerf;
 
     if (this.state === 'menu') {
+      const previewLaneCount = DIFFICULTIES[this.selectedDifficulty]?.laneCount ?? 4;
       this.renderer.renderMenuBackground(
         this.canvas.width,
         this.canvas.height,
         nowPerf / 1000,
-        this.settings
+        this.settings,
+        previewLaneCount
       );
       return;
     }
@@ -667,13 +674,15 @@ export class RhythmGame {
   private updatePlayerNotesAndHolds(songTime: number, dt: number): void {
     const { laneWidth, highwayX, receptorY } = this.renderer.getHighwayGeometry(
       this.canvas.width,
-      this.canvas.height
+      this.canvas.height,
+      this.config.laneCount
     );
-    const laneCols = (NOTE_PALETTES[this.settings.notePalette] ?? NOTE_PALETTES.candy).lanes;
+    const laneCols = getPaletteLanes(this.settings.notePalette, this.config.laneCount);
 
     for (const note of this.notes) {
       if (note.time - songTime > 0.25) break;
 
+      const noteCol = laneCols[note.lane] ?? laneCols[0];
       if (note.holding && !note.holdCompleted) {
         const endTime = note.time + note.duration;
         if (songTime >= endTime) {
@@ -682,8 +691,8 @@ export class RhythmGame {
           this.stats.score += 100;
           this.stats.hp = Math.min(100, this.stats.hp + 1.4);
           const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
-          this.spawnBurst(cx, receptorY, laneCols[note.lane].glow, 6);
-        } else if (!this.lanes[note.lane].pressed) {
+          this.spawnBurst(cx, receptorY, noteCol.glow, 6);
+        } else if (!this.lanes[note.lane]?.pressed) {
           if (endTime - songTime <= 0.11) {
             note.holding = false;
             note.holdCompleted = true;
@@ -704,7 +713,7 @@ export class RhythmGame {
           if (songTime - note.lastHoldTickTime >= 0.09) {
             note.lastHoldTickTime = songTime;
             const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
-            this.spawnBurst(cx, receptorY, laneCols[note.lane].main, 2);
+            this.spawnBurst(cx, receptorY, noteCol.main, 2);
           }
         }
       }

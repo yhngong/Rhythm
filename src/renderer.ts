@@ -1,9 +1,9 @@
-import { LANE_LABELS } from './difficulties';
+import { getLaneLabels } from './difficulties';
 import {
   DEFAULT_SETTINGS,
   GameSettings,
+  getPaletteLanes,
   LaneColorSpec,
-  NOTE_PALETTES,
   NoteShape,
   ThemeMode,
 } from './settings';
@@ -12,6 +12,8 @@ import {
   FloatingPopup,
   GameMode,
   HitParticle,
+  LaneCount,
+  LaneIndex,
   NoteBar,
   RunStats,
 } from './types';
@@ -24,7 +26,7 @@ export interface LaneVisualState {
 }
 
 export interface CharacterPose {
-  lane: -1 | 0 | 1 | 2 | 3;
+  lane: -1 | LaneIndex;
   missTimer: number;
   poseTimer: number;
 }
@@ -82,13 +84,23 @@ const LIGHT_IDLE_PALETTE: JellyPalette = {
   lip: '#97ABC9',
 };
 
-// Lane directions for Funk Arrow shape: D = Left, F = Down, J = Up, K = Right
-const ARROW_ANGLES: readonly [number, number, number, number] = [
+// 4K Arrow angles: D = Left, F = Down, J = Up, K = Right
+const ARROW_ANGLES_4: readonly number[] = [Math.PI, Math.PI / 2, -Math.PI / 2, 0];
+
+// 6K Arrow angles: S = Left, D = Down-Left, F = Down, J = Up, K = Up-Right, L = Right
+const ARROW_ANGLES_6: readonly number[] = [
   Math.PI,
+  (3 * Math.PI) / 4,
   Math.PI / 2,
   -Math.PI / 2,
+  -Math.PI / 4,
   0,
 ];
+
+function getArrowAngle(laneIdx: LaneIndex, laneCount: LaneCount): number {
+  const table = laneCount === 6 ? ARROW_ANGLES_6 : ARROW_ANGLES_4;
+  return table[laneIdx % table.length] ?? 0;
+}
 
 const BUBBLE_FONT = "'Fredoka', 'Nunito', 'Arial Rounded MT Bold', system-ui, sans-serif";
 
@@ -107,15 +119,18 @@ export class GameRenderer {
     return theme === 'light' ? LIGHT_IDLE_PALETTE : DARK_IDLE_PALETTE;
   }
 
-  private getLaneColors(
-    settings: GameSettings
-  ): readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec] {
-    return (NOTE_PALETTES[settings.notePalette] ?? NOTE_PALETTES.candy).lanes;
+  private getLaneColors(settings: GameSettings, laneCount: LaneCount): readonly LaneColorSpec[] {
+    return getPaletteLanes(settings.notePalette, laneCount);
   }
 
-  public getHighwayGeometry(width: number, height: number) {
-    const laneWidth = Math.min(98, Math.max(68, Math.floor(width * 0.088)));
-    const highwayWidth = laneWidth * 4;
+  public getHighwayGeometry(width: number, height: number, laneCount: LaneCount = 4) {
+    const maxTotalW = Math.max(240, width - 32);
+    const idealLaneW =
+      laneCount === 6
+        ? Math.min(84, Math.max(46, Math.floor(width * 0.068)))
+        : Math.min(98, Math.max(64, Math.floor(width * 0.088)));
+    const laneWidth = Math.min(idealLaneW, Math.floor(maxTotalW / laneCount));
+    const highwayWidth = laneWidth * laneCount;
     const highwayX = Math.floor((width - highwayWidth) / 2);
     const receptorY = height - 140;
     return { laneWidth, highwayWidth, highwayX, receptorY };
@@ -125,12 +140,13 @@ export class GameRenderer {
     width: number,
     height: number,
     timeSec: number,
-    settings: GameSettings = DEFAULT_SETTINGS
+    settings: GameSettings = DEFAULT_SETTINGS,
+    laneCount: LaneCount = 4
   ): void {
     if (width <= 0 || height <= 0) return;
     const ctx = this.ctx;
     const isLight = settings.themeMode === 'light';
-    const laneColors = this.getLaneColors(settings);
+    const laneColors = this.getLaneColors(settings, laneCount);
 
     const bg = ctx.createLinearGradient(0, 0, 0, height);
     if (isLight) {
@@ -150,24 +166,35 @@ export class GameRenderer {
     const colW = width / cols;
     ctx.save();
     ctx.globalAlpha = isLight ? 0.34 : 0.28;
-    for (let i = 0; i < 16; i++) {
-      const laneIdx = (i % 4) as 0 | 1 | 2 | 3;
+    for (let i = 0; i < 18; i++) {
+      const laneIdx = (i % laneCount) as LaneIndex;
       const cx = ((i * 3) % cols) * colW + colW * 0.5;
-      const w = Math.min(96, colW * 0.72);
+      const w = Math.min(92, colW * 0.72);
       const speed = 110 + (i % 5) * 35;
-      const cy = ((timeSec * speed + i * 145) % (height + 90)) - 45;
-      this.drawNoteUnit(cx, cy, w, laneIdx, settings.noteShape, laneColors[laneIdx], 4, true);
+      const cy = ((timeSec * speed + i * 135) % (height + 90)) - 45;
+      this.drawNoteUnit(
+        cx,
+        cy,
+        w,
+        laneIdx,
+        laneCount,
+        settings.noteShape,
+        laneColors[laneIdx],
+        4,
+        true
+      );
     }
     ctx.restore();
   }
 
   /**
-   * Renders a live animated 4-lane preview strip inside the Settings modal!
+   * Renders a live animated 4-lane or 6-lane preview strip inside the Settings modal!
    */
   public static renderSettingsPreview(
     previewCanvas: HTMLCanvasElement,
     settings: GameSettings,
-    timeSec: number
+    timeSec: number,
+    laneCount: LaneCount = 4
   ): void {
     const pCtx = previewCanvas.getContext('2d');
     if (!pCtx) return;
@@ -177,17 +204,17 @@ export class GameRenderer {
 
     const helper = new GameRenderer(previewCanvas);
     const isLight = settings.themeMode === 'light';
-    const laneColors = helper.getLaneColors(settings);
+    const laneColors = helper.getLaneColors(settings, laneCount);
     const idlePal = helper.getIdlePalette(settings.themeMode);
 
     // Mini highway background
     pCtx.fillStyle = isLight ? '#E2EBF8' : '#1B2029';
     pCtx.fillRect(0, 0, width, height);
 
-    const laneW = width / 4;
-    const receptorY = height - 34;
+    const laneW = width / laneCount;
+    const receptorY = height - 30;
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < laneCount; i++) {
       if (i % 2 === 1) {
         pCtx.fillStyle = isLight ? 'rgba(30, 50, 85, 0.04)' : 'rgba(255, 255, 255, 0.025)';
         pCtx.fillRect(i * laneW, 0, laneW, height);
@@ -202,33 +229,52 @@ export class GameRenderer {
       }
     }
 
-    // Animated falling notes + receptors across the 4 lanes
-    for (let i = 0; i < 4; i++) {
-      const laneIdx = i as 0 | 1 | 2 | 3;
+    // Animated falling notes + receptors across the 4 or 6 lanes
+    for (let i = 0; i < laneCount; i++) {
+      const laneIdx = i as LaneIndex;
       const cx = i * laneW + laneW / 2;
       const col = laneColors[laneIdx];
-      const cycle = ((timeSec * 0.95 + i * 0.25) % 1 + 1) % 1;
+      const cycle = (((timeSec * 0.95 + i * (1 / laneCount)) % 1) + 1) % 1;
       const noteY = -18 + cycle * (receptorY + 18);
-      const justHit = Math.abs(noteY - receptorY) < 12;
+      const justHit = Math.abs(noteY - receptorY) < 11;
 
-      // Receptor
       if (justHit) {
-        helper.drawNoteUnit(cx, receptorY + 2, laneW * 0.88, laneIdx, settings.noteShape, col, 2, true);
+        helper.drawNoteUnit(
+          cx,
+          receptorY + 2,
+          laneW * 0.88,
+          laneIdx,
+          laneCount,
+          settings.noteShape,
+          col,
+          2,
+          true
+        );
       } else {
         helper.drawReceptorSlot(
           cx,
           receptorY,
           laneW * 0.88,
           laneIdx,
+          laneCount,
           settings.noteShape,
           idlePal,
           col.main
         );
       }
 
-      // Falling note above receptor
       if (noteY < receptorY - 6) {
-        helper.drawNoteUnit(cx, noteY, laneW * 0.88, laneIdx, settings.noteShape, col, 4, true);
+        helper.drawNoteUnit(
+          cx,
+          noteY,
+          laneW * 0.88,
+          laneIdx,
+          laneCount,
+          settings.noteShape,
+          col,
+          4,
+          true
+        );
       }
     }
   }
@@ -237,8 +283,13 @@ export class GameRenderer {
     const { width, height, songTime, difficulty, settings, kickPulse } = state;
     if (width <= 0 || height <= 0) return;
     const ctx = this.ctx;
-    const laneColors = this.getLaneColors(settings);
-    const { laneWidth, highwayWidth, highwayX, receptorY } = this.getHighwayGeometry(width, height);
+    const laneCount = difficulty.laneCount;
+    const laneColors = this.getLaneColors(settings, laneCount);
+    const { laneWidth, highwayWidth, highwayX, receptorY } = this.getHighwayGeometry(
+      width,
+      height,
+      laneCount
+    );
 
     ctx.save();
     try {
@@ -251,13 +302,19 @@ export class GameRenderer {
       this.drawStageBackdrop(width, height, songTime, kickPulse, settings.themeMode, laneColors);
 
       // 2. Flanking Glossy Cartoon Speakers & FNF Stage Characters
-      if (width >= 820) {
+      if (width >= highwayWidth + 320) {
         const leftStageX = highwayX * 0.5;
         const rightStageX = highwayX + highwayWidth + (width - (highwayX + highwayWidth)) * 0.5;
         const stageFloorY = height - 160;
         const idlePal = this.getIdlePalette(settings.themeMode);
 
-        this.drawSpeakerStack(leftStageX, stageFloorY - 96, kickPulse, laneColors[3], idlePal);
+        this.drawSpeakerStack(
+          leftStageX,
+          stageFloorY - 96,
+          kickPulse,
+          laneColors[laneColors.length - 1],
+          idlePal
+        );
         this.drawSpeakerStack(rightStageX, stageFloorY - 96, kickPulse, laneColors[0], idlePal);
 
         this.drawRivalCharacter(
@@ -266,6 +323,7 @@ export class GameRenderer {
           songTime,
           state.currentBpm,
           state.rivalPose,
+          laneCount,
           laneColors,
           idlePal
         );
@@ -275,6 +333,7 @@ export class GameRenderer {
           songTime,
           state.currentBpm,
           state.playerPose,
+          laneCount,
           laneColors,
           idlePal
         );
@@ -285,6 +344,7 @@ export class GameRenderer {
         highwayX,
         highwayWidth,
         laneWidth,
+        laneCount,
         height,
         receptorY,
         songTime,
@@ -300,6 +360,7 @@ export class GameRenderer {
         state.notes,
         highwayX,
         laneWidth,
+        laneCount,
         height,
         receptorY,
         songTime,
@@ -308,10 +369,11 @@ export class GameRenderer {
         laneColors
       );
 
-      // 5. Glossy 3D Catcher Receptors + Squircle D F J K Keycap Buttons
+      // 5. Glossy 3D Catcher Receptors + Squircle Keycap Buttons (DFJK or SDFJKL)
       this.drawReceptorBars(
         highwayX,
         laneWidth,
+        laneCount,
         receptorY,
         state.lanes,
         settings.noteShape,
@@ -335,37 +397,40 @@ export class GameRenderer {
     }
   }
 
-  /**
-   * Unified dispatcher drawing any of the 4 customizable 3D note shapes:
-   *  - 'bar': Classic ui1.png horizontal candy bar
-   *  - 'circle': Plump glossy 3D jelly orb
-   *  - 'diamond': Faceted glossy 3D crystal gem
-   *  - 'arrow': Directional 3D FNF arrow (Left, Down, Up, Right)
-   */
   private drawNoteUnit(
     cx: number,
     cy: number,
     laneWidth: number,
-    laneIdx: 0 | 1 | 2 | 3,
+    laneIdx: LaneIndex,
+    laneCount: LaneCount,
     shape: NoteShape,
     pal: JellyPalette,
     lipHeight = 5,
     showShineDots = true
   ): void {
     if (shape === 'circle') {
-      const r = Math.min(24, Math.max(12, laneWidth * 0.3));
+      const r = Math.min(24, Math.max(11, laneWidth * 0.31));
       this.drawJellyOrb(cx, cy, r, pal, lipHeight, showShineDots);
     } else if (shape === 'diamond') {
-      const rx = Math.min(28, Math.max(14, laneWidth * 0.34));
-      const ry = Math.min(23, Math.max(12, laneWidth * 0.28));
+      const rx = Math.min(28, Math.max(12, laneWidth * 0.35));
+      const ry = Math.min(23, Math.max(10, laneWidth * 0.29));
       this.drawJellyDiamond(cx, cy, rx, ry, pal, lipHeight, showShineDots);
     } else if (shape === 'arrow') {
-      const r = Math.min(24, Math.max(13, laneWidth * 0.3));
-      this.drawJellyArrow(cx, cy, r, ARROW_ANGLES[laneIdx], pal, lipHeight);
+      const r = Math.min(24, Math.max(12, laneWidth * 0.31));
+      this.drawJellyArrow(cx, cy, r, getArrowAngle(laneIdx, laneCount), pal, lipHeight);
     } else {
-      const barW = Math.max(20, laneWidth - 16);
+      const barW = Math.max(18, laneWidth - 14);
       const barH = 24;
-      this.drawJellyPill(cx - barW / 2, cy - barH / 2, barW, barH, 11, pal, lipHeight, showShineDots);
+      this.drawJellyPill(
+        cx - barW / 2,
+        cy - barH / 2,
+        barW,
+        barH,
+        11,
+        pal,
+        lipHeight,
+        showShineDots
+      );
     }
   }
 
@@ -373,14 +438,15 @@ export class GameRenderer {
     cx: number,
     cy: number,
     laneWidth: number,
-    laneIdx: 0 | 1 | 2 | 3,
+    laneIdx: LaneIndex,
+    laneCount: LaneCount,
     shape: NoteShape,
     idlePal: JellyPalette,
     accentMain: string
   ): void {
     const ctx = this.ctx;
     if (shape === 'circle') {
-      const r = Math.min(24, Math.max(12, laneWidth * 0.3));
+      const r = Math.min(24, Math.max(11, laneWidth * 0.31));
       this.drawJellyOrb(cx, cy, r, idlePal, 5, true);
       if (r > 7) {
         ctx.save();
@@ -392,8 +458,8 @@ export class GameRenderer {
         ctx.restore();
       }
     } else if (shape === 'diamond') {
-      const rx = Math.min(28, Math.max(14, laneWidth * 0.34));
-      const ry = Math.min(23, Math.max(12, laneWidth * 0.28));
+      const rx = Math.min(28, Math.max(12, laneWidth * 0.35));
+      const ry = Math.min(23, Math.max(10, laneWidth * 0.29));
       this.drawJellyDiamond(cx, cy, rx, ry, idlePal, 5, true);
       if (rx > 8 && ry > 8) {
         ctx.save();
@@ -404,10 +470,18 @@ export class GameRenderer {
         ctx.restore();
       }
     } else if (shape === 'arrow') {
-      const r = Math.min(24, Math.max(13, laneWidth * 0.3));
-      this.drawJellyArrow(cx, cy, r, ARROW_ANGLES[laneIdx], idlePal, 5, accentMain);
+      const r = Math.min(24, Math.max(12, laneWidth * 0.31));
+      this.drawJellyArrow(
+        cx,
+        cy,
+        r,
+        getArrowAngle(laneIdx, laneCount),
+        idlePal,
+        5,
+        accentMain
+      );
     } else {
-      const barW = Math.max(20, laneWidth - 12);
+      const barW = Math.max(18, laneWidth - 10);
       const barH = 25;
       const x = cx - barW / 2;
       const y = cy - barH / 2;
@@ -718,7 +792,7 @@ export class GameRenderer {
     songTime: number,
     kickPulse: number,
     theme: ThemeMode,
-    laneColors: readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec]
+    laneColors: readonly LaneColorSpec[]
   ): void {
     const ctx = this.ctx;
     const isLight = theme === 'light';
@@ -746,17 +820,18 @@ export class GameRenderer {
     ctx.lineTo(width, horizonY);
     ctx.stroke();
 
-    for (let i = 0; i < 4; i++) {
+    const lightCount = laneColors.length;
+    for (let i = 0; i < lightCount; i++) {
       const col = laneColors[i].main;
-      const bx = width * (0.14 + i * 0.24);
-      const sway = Math.sin(songTime * 1.4 + i * 1.5) * 80;
+      const bx = width * (0.1 + (i / Math.max(1, lightCount - 1)) * 0.8);
+      const sway = Math.sin(songTime * 1.4 + i * 1.3) * 80;
       ctx.save();
-      ctx.globalAlpha = (isLight ? 0.08 : 0.05) + kickPulse * 0.045;
+      ctx.globalAlpha = (isLight ? 0.075 : 0.048) + kickPulse * 0.042;
       ctx.fillStyle = col;
       ctx.beginPath();
       ctx.moveTo(bx, 0);
-      ctx.lineTo(bx + sway - 125, horizonY);
-      ctx.lineTo(bx + sway + 125, horizonY);
+      ctx.lineTo(bx + sway - 115, horizonY);
+      ctx.lineTo(bx + sway + 115, horizonY);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
@@ -801,14 +876,22 @@ export class GameRenderer {
     songTime: number,
     bpm: number,
     pose: CharacterPose,
-    laneColors: readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec],
+    laneCount: LaneCount,
+    laneColors: readonly LaneColorSpec[],
     headPal: JellyPalette
   ): void {
     const ctx = this.ctx;
     const beatBounce = Math.abs(Math.sin(songTime * Math.PI * (bpm / 60))) * 8;
-    const pal: JellyPalette = pose.lane !== -1 ? laneColors[pose.lane] : laneColors[3];
-    const leanX = pose.lane === 0 ? -10 : pose.lane === 3 ? 10 : 0;
-    const stretchY = pose.lane === 2 ? -10 : pose.lane === 1 ? 6 : 0;
+    const lastIdx = laneColors.length - 1;
+    const pal: JellyPalette =
+      pose.lane !== -1 && laneColors[pose.lane] ? laneColors[pose.lane] : laneColors[lastIdx];
+    const leanX = pose.lane === 0 ? -10 : pose.lane === laneCount - 1 ? 10 : 0;
+    const stretchY =
+      pose.lane === Math.floor(laneCount / 2)
+        ? -10
+        : pose.lane === Math.floor(laneCount / 2) - 1
+        ? 6
+        : 0;
 
     ctx.save();
     ctx.translate(x + leanX, floorY);
@@ -829,15 +912,17 @@ export class GameRenderer {
     songTime: number,
     bpm: number,
     pose: CharacterPose,
-    laneColors: readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec],
+    laneCount: LaneCount,
+    laneColors: readonly LaneColorSpec[],
     headPal: JellyPalette
   ): void {
     const ctx = this.ctx;
     const beatBounce = Math.abs(Math.sin(songTime * Math.PI * (bpm / 60))) * 8;
     const isMiss = pose.missTimer > 0;
+    const lastIdx = laneColors.length - 1;
     const pal: JellyPalette = isMiss
       ? BERRY_JAM_PALETTE
-      : pose.lane !== -1
+      : pose.lane !== -1 && laneColors[pose.lane]
       ? laneColors[pose.lane]
       : laneColors[0];
 
@@ -845,10 +930,15 @@ export class GameRenderer {
       ? (Math.random() - 0.5) * 8
       : pose.lane === 0
       ? -12
-      : pose.lane === 3
+      : pose.lane === laneCount - 1
       ? 12
       : 0;
-    const stretchY = pose.lane === 2 ? -12 : pose.lane === 1 ? 6 : 0;
+    const stretchY =
+      pose.lane === Math.floor(laneCount / 2)
+        ? -12
+        : pose.lane === Math.floor(laneCount / 2) - 1
+        ? 6
+        : 0;
 
     ctx.save();
     ctx.translate(x + leanX, floorY);
@@ -858,8 +948,8 @@ export class GameRenderer {
     this.drawJellyPill(-30, -74 + beatBounce * 0.5, 60, 62, 18, pal, 5, true);
     this.drawJellyPill(-27, headY - 25, 54, 48, 18, headPal, 5, false);
 
-    this.drawJellyPill(-29, headY - 31, 58, 16, 8, laneColors[3], 3, true);
-    this.drawJellyPill(15, headY - 25, 24, 10, 5, laneColors[3], 2, false);
+    this.drawJellyPill(-29, headY - 31, 58, 16, 8, laneColors[lastIdx], 3, true);
+    this.drawJellyPill(15, headY - 25, 24, 10, 5, laneColors[lastIdx], 2, false);
 
     if (isMiss) {
       ctx.lineWidth = 3.5;
@@ -881,7 +971,8 @@ export class GameRenderer {
       ctx.fill();
     }
 
-    this.drawOutlinedText('You (DFJK)', 0, 22, 14, '#FFFFFF', '#18202E', 4.5);
+    const keysTag = laneCount === 6 ? 'You (SDFJKL)' : 'You (DFJK)';
+    this.drawOutlinedText(keysTag, 0, 22, 14, '#FFFFFF', '#18202E', 4.5);
     ctx.restore();
   }
 
@@ -889,6 +980,7 @@ export class GameRenderer {
     highwayX: number,
     highwayWidth: number,
     laneWidth: number,
+    laneCount: LaneCount,
     height: number,
     receptorY: number,
     songTime: number,
@@ -896,7 +988,7 @@ export class GameRenderer {
     scrollSpeed: number,
     lanes: LaneVisualState[],
     theme: ThemeMode,
-    laneColors: readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec]
+    laneColors: readonly LaneColorSpec[]
   ): void {
     const ctx = this.ctx;
     const isLight = theme === 'light';
@@ -908,7 +1000,7 @@ export class GameRenderer {
     ctx.fillStyle = isLight ? '#E2EBF8' : '#1E232C';
     ctx.fillRect(highwayX, 0, highwayWidth, trackH);
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < laneCount; i++) {
       const lx = highwayX + i * laneWidth;
       if (i % 2 === 1) {
         ctx.fillStyle = isLight ? 'rgba(25, 45, 80, 0.035)' : 'rgba(255, 255, 255, 0.018)';
@@ -916,7 +1008,8 @@ export class GameRenderer {
       }
 
       const st = lanes[i];
-      const col = laneColors[i];
+      const col = laneColors[i] ?? laneColors[0];
+      if (!st) continue;
 
       if (st.jamRemainingSec > 0) {
         const grad = ctx.createLinearGradient(0, receptorY - 240, 0, receptorY + 25);
@@ -964,10 +1057,17 @@ export class GameRenderer {
       ctx.stroke();
     }
 
-    for (let i = 1; i < 4; i++) {
+    for (let i = 1; i < laneCount; i++) {
       const x = highwayX + i * laneWidth;
-      ctx.strokeStyle = isLight ? 'rgba(30, 50, 85, 0.1)' : 'rgba(255, 255, 255, 0.08)';
-      ctx.lineWidth = 2;
+      const isCenterSplit = i === laneCount / 2;
+      ctx.strokeStyle = isLight
+        ? isCenterSplit
+          ? 'rgba(30, 50, 85, 0.22)'
+          : 'rgba(30, 50, 85, 0.1)'
+        : isCenterSplit
+        ? 'rgba(255, 255, 255, 0.18)'
+        : 'rgba(255, 255, 255, 0.08)';
+      ctx.lineWidth = isCenterSplit ? 2.8 : 2;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, trackH);
@@ -983,15 +1083,16 @@ export class GameRenderer {
     notes: NoteBar[],
     highwayX: number,
     laneWidth: number,
+    laneCount: LaneCount,
     height: number,
     receptorY: number,
     songTime: number,
     scrollSpeed: number,
     noteShape: NoteShape,
-    laneColors: readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec]
+    laneColors: readonly LaneColorSpec[]
   ): void {
     const ctx = this.ctx;
-    const barW = laneWidth - 16;
+    const barW = laneWidth - 14;
     const maxFutureSec = (receptorY + 60) / scrollSpeed;
 
     for (const note of notes) {
@@ -1006,7 +1107,7 @@ export class GameRenderer {
       const highestY = Math.min(headY, tailY);
       if (lowestY < -50 || highestY > height) continue;
 
-      const pal = laneColors[note.lane];
+      const pal = laneColors[note.lane] ?? laneColors[0];
       const cx = highwayX + note.lane * laneWidth + laneWidth / 2;
 
       // 1. Glossy vertical Hold Sustain Trail
@@ -1015,7 +1116,7 @@ export class GameRenderer {
         const topY = Math.max(-25, tailY);
         const trailH = clampBottomY - topY;
         if (trailH >= 4) {
-          const ribbonW = Math.max(20, Math.floor(barW * 0.42));
+          const ribbonW = Math.max(18, Math.floor(barW * 0.42));
           const rx = cx - ribbonW / 2;
           ctx.save();
           ctx.globalAlpha = note.missed || note.holdReleasedEarly ? 0.32 : 0.92;
@@ -1030,7 +1131,7 @@ export class GameRenderer {
         if (note.missed) {
           ctx.globalAlpha = 0.38;
         }
-        this.drawNoteUnit(cx, headY, laneWidth, note.lane, noteShape, pal, 5, true);
+        this.drawNoteUnit(cx, headY, laneWidth, note.lane, laneCount, noteShape, pal, 5, true);
         ctx.restore();
       }
     }
@@ -1039,19 +1140,23 @@ export class GameRenderer {
   private drawReceptorBars(
     highwayX: number,
     laneWidth: number,
+    laneCount: LaneCount,
     receptorY: number,
     lanes: LaneVisualState[],
     noteShape: NoteShape,
     theme: ThemeMode,
-    laneColors: readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec]
+    laneColors: readonly LaneColorSpec[]
   ): void {
     const idlePal = this.getIdlePalette(theme);
+    const labels = getLaneLabels(laneCount);
     const keyBaseOffset = noteShape === 'bar' ? 22 : 32;
+    const keySize = Math.min(36, Math.max(28, laneWidth - 12));
 
-    for (let i = 0; i < 4; i++) {
-      const laneIdx = i as 0 | 1 | 2 | 3;
+    for (let i = 0; i < laneCount; i++) {
+      const laneIdx = i as LaneIndex;
       const st = lanes[i];
-      const col = laneColors[i];
+      if (!st) continue;
+      const col = laneColors[i] ?? laneColors[0];
       const jammed = st.jamRemainingSec > 0;
       const shakeX = jammed ? (Math.random() - 0.5) * 6 : 0;
 
@@ -1063,16 +1168,25 @@ export class GameRenderer {
       const ry = receptorY + pressY;
 
       if (jammed) {
-        this.drawNoteUnit(rx, ry, laneWidth, laneIdx, noteShape, BERRY_JAM_PALETTE, 5, true);
-        this.drawOutlinedText('LOCKED!', cx, ry - 26, 12, '#FF8FA6', '#4F0417', 4);
+        this.drawNoteUnit(
+          rx,
+          ry,
+          laneWidth,
+          laneIdx,
+          laneCount,
+          noteShape,
+          BERRY_JAM_PALETTE,
+          5,
+          true
+        );
+        this.drawOutlinedText('LOCKED!', cx, ry - 26, 11, '#FF8FA6', '#4F0417', 4);
       } else if (st.pressed || st.hitFlash > 0.08) {
-        this.drawNoteUnit(rx, ry, laneWidth, laneIdx, noteShape, col, lipH, true);
+        this.drawNoteUnit(rx, ry, laneWidth, laneIdx, laneCount, noteShape, col, lipH, true);
       } else {
-        this.drawReceptorSlot(rx, ry, laneWidth, laneIdx, noteShape, idlePal, col.main);
+        this.drawReceptorSlot(rx, ry, laneWidth, laneIdx, laneCount, noteShape, idlePal, col.main);
       }
 
-      // Mini ui1.png Squircle Keycap Button (D / F / J / K) below catcher receptor!
-      const keySize = 36;
+      // Mini ui1.png Squircle Keycap Button (DFJK or SDFJKL) below catcher receptor!
       const keyPressY = st.pressed ? 3 : 0;
       const keyLip = st.pressed ? 2 : 5;
       const keyPal = jammed ? BERRY_JAM_PALETTE : st.pressed ? col : idlePal;
@@ -1082,16 +1196,16 @@ export class GameRenderer {
         receptorY + keyBaseOffset + keyPressY,
         keySize,
         keySize,
-        12,
+        11,
         keyPal,
         keyLip,
         true
       );
       this.drawOutlinedText(
-        LANE_LABELS[i],
+        labels[i] ?? '',
         cx,
         receptorY + keyBaseOffset + keyPressY + keySize / 2,
-        17,
+        16,
         '#FFFFFF',
         theme === 'light' && !st.pressed && !jammed ? '#24324A' : keyPal.lip,
         4
@@ -1143,13 +1257,14 @@ export class GameRenderer {
     state: RenderFrameState,
     highwayX: number,
     highwayWidth: number,
-    laneColors: readonly [LaneColorSpec, LaneColorSpec, LaneColorSpec, LaneColorSpec]
+    laneColors: readonly LaneColorSpec[]
   ): void {
     const { width, height, stats, difficulty, mode, songTime, totalDurationSec, settings } = state;
     const idlePal = this.getIdlePalette(settings.themeMode);
     const isLight = settings.themeMode === 'light';
 
     // 1. Top Glossy Progress Pill
+    const playerHudPal = difficulty.laneCount === 6 ? laneColors[1] ?? laneColors[0] : laneColors[0];
     const topBarW = Math.max(80, Math.min(440, width - 220));
     const topBarX = (width - topBarW) / 2;
     this.drawJellyPill(topBarX, 12, topBarW, 20, 10, idlePal, 4, false);
@@ -1160,7 +1275,7 @@ export class GameRenderer {
         ? (clampedSongTime % 30) / 30
         : Math.max(0, Math.min(1, clampedSongTime / Math.max(1, totalDurationSec)));
     const fillW = Math.max(22, (topBarW - 6) * pct);
-    this.drawJellyPill(topBarX + 3, 14, fillW, 16, 8, laneColors[0], 0, true);
+    this.drawJellyPill(topBarX + 3, 14, fillW, 16, 8, playerHudPal, 0, true);
 
     const timeLabel =
       mode === 'endless'
@@ -1260,14 +1375,14 @@ export class GameRenderer {
         playerW,
         hbHeight,
         11,
-        stats.hp > 25 ? laneColors[0] : laneColors[2],
+        stats.hp > 25 ? playerHudPal : laneColors[2],
         0,
         true
       );
     }
 
     this.drawJellyPill(splitX - 24, hbY - 4, 24, 28, 12, BERRY_JAM_PALETTE, 3, true);
-    this.drawJellyPill(splitX + 2, hbY - 4, 24, 28, 12, laneColors[0], 3, true);
+    this.drawJellyPill(splitX + 2, hbY - 4, 24, 28, 12, playerHudPal, 3, true);
 
     const summary = `Score: ${stats.score.toLocaleString()}   •   Misses: ${
       stats.counts.MISS + stats.counts.SPAM
